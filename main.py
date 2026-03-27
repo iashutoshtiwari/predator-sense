@@ -1,6 +1,7 @@
 import os
 import sys
 import enum
+import json
 from dataclasses import dataclass
 
 from PyQt6 import QtWidgets, QtGui
@@ -12,6 +13,7 @@ from ecwrite import ec_write, ec_read, ensure_ec_access
 from font_config import UI_FONT_FAMILY, apply_ui_family, register_bundled_fonts
 
 SUPPORTED_MODEL = "Predator G3-572"
+STATE_FILE = "/var/lib/predator-sense/state.json"
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,7 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
         else:
             print('Off')
             ec_write(self.profile.cool_boost_control, self.profile.cool_boost_off)
+        persist_coolboost_state(tog)
 
     def cpumanual(self, level):
         print(str(level * 10), end=', ')
@@ -185,6 +188,15 @@ def ensure_supported_hardware():
         print("This build is scoped to Helios 300 2017 G3-572-55UB.")
         return False
     return True
+
+
+def persist_coolboost_state(enabled):
+    try:
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"coolboost_enabled": bool(enabled)}, f)
+    except OSError as exc:
+        print("Warning: failed to persist CoolBoost state:", exc)
 
 
 if not ensure_supported_hardware():

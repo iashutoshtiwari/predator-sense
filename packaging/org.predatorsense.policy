@@ -7,8 +7,8 @@
   <vendor_url>https://github.com/iashutoshtiwari/predator-sense</vendor_url>
   <icon_name>predator-sense</icon_name>
   <action id="org.predatorsense.launch">
-    <description>Launch Predator Sense with hardware access</description>
-    <message>Authentication is required to control fan speeds.</message>
+    <description>Launch Predator Sense</description>
+    <message>Authentication required.</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>

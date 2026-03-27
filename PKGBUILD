@@ -1,26 +1,27 @@
 pkgname=predator-sense
-pkgver=r46.31a106a
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Predator Sense fan control app for Helios 300 G3-572-55UB"
 arch=('x86_64')
-url="https://github.com/iashutoshtiwari/predator-sense"
+url="local"
 license=('MIT')
 depends=('python' 'python-pyqt6' 'polkit')
-makedepends=('git')
+install="${pkgname}.install"
 optdepends=('evtest: monitor keyboard events while troubleshooting')
-source=("${pkgname}::git+${url}.git")
-sha256sums=('SKIP')
+source=()
+sha256sums=()
 
 pkgver() {
-  cd "${srcdir}/${pkgname}"
-  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  # For local builds we just echo the static pkgver
+  printf "%s" "${pkgver}"
 }
 
 package() {
-  cd "${srcdir}/${pkgname}"
+  cd "${startdir}"
 
   install -dm755 "${pkgdir}/usr/share/predator-sense"
   install -m644 main.py "${pkgdir}/usr/share/predator-sense/main.py"
+  install -m644 background_service.py "${pkgdir}/usr/share/predator-sense/background_service.py"
   install -m644 frontend.py "${pkgdir}/usr/share/predator-sense/frontend.py"
   install -m644 ecwrite.py "${pkgdir}/usr/share/predator-sense/ecwrite.py"
   install -m644 font_config.py "${pkgdir}/usr/share/predator-sense/font_config.py"
@@ -40,4 +41,7 @@ package() {
 
   install -dm755 "${pkgdir}/usr/share/polkit-1/actions"
   install -m644 packaging/org.predatorsense.policy "${pkgdir}/usr/share/polkit-1/actions/org.predatorsense.policy"
+
+  install -dm755 "${pkgdir}/usr/lib/systemd/system"
+  install -m644 packaging/predator-sense.service "${pkgdir}/usr/lib/systemd/system/predator-sense.service"
 }

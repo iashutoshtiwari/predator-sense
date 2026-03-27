@@ -6,11 +6,13 @@ def main():
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     required = [
         repo_root / "main.py",
+        repo_root / "background_service.py",
         repo_root / "frontend.py",
         repo_root / "ecwrite.py",
         repo_root / "font_config.py",
         repo_root / "PKGBUILD",
         repo_root / "packaging" / "predator-sense.desktop",
+        repo_root / "packaging" / "predator-sense.service",
     ]
     missing = [str(path) for path in required if not path.exists()]
     if missing:

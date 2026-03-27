@@ -44,6 +44,7 @@ After install:
 
 - Launch via desktop entry **Predator Sense Helios 300**
 - or run `predator-sense`
+- `predator-sense.service` is enabled at install and starts at boot to keep CoolBoost state applied.
 
 ## CI checks
 
