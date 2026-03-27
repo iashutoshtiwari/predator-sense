@@ -1,15 +1,32 @@
 EC_IO_FILE = '/sys/kernel/debug/ec/ec0/io'
 
-try:
-    open(EC_IO_FILE, 'rb')
-except PermissionError:
-    print('Run with sudo')
-    exit(1)
-except FileNotFoundError:
-    print(EC_IO_FILE, 'not found. Creating the EC IO file...')
-    from subprocess import Popen
-    Popen(['modprobe', 'ec_sys', 'write_support=1'])
-    print('EC Changed. Restarting the application may help if it is not working.')
+from subprocess import run
+
+
+def ensure_ec_access():
+    try:
+        with open(EC_IO_FILE, "rb"):
+            return True
+    except PermissionError:
+        print("Permission denied for", EC_IO_FILE)
+        print("Launch using the privileged wrapper (pkexec) or as root.")
+        return False
+    except FileNotFoundError:
+        print(EC_IO_FILE, "not found. Trying to load ec_sys module...")
+        result = run(["modprobe", "ec_sys", "write_support=1"], check=False)
+        if result.returncode != 0:
+            print("Failed to load ec_sys. Enable the module and debugfs, then retry.")
+            return False
+        try:
+            with open(EC_IO_FILE, "rb"):
+                print("ec_sys loaded successfully.")
+                return True
+        except OSError as exc:
+            print("EC I/O path still unavailable:", exc)
+            return False
+    except OSError as exc:
+        print("Unable to access EC I/O path:", exc)
+        return False
 
 
 def ec_write(address, value):

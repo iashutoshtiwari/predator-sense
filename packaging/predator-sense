@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+pkexec env \
+  DISPLAY="${DISPLAY:-}" \
+  XAUTHORITY="${XAUTHORITY:-}" \
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+  QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}" \
+  /usr/bin/python "/usr/share/predator-sense/main.py"

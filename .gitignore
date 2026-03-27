@@ -1,4 +1,22 @@
-dist
-build
-.idea
-__pycache__
+# IDE
+.idea/
+.vscode/
+
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# makepkg artifacts
+pkg/
+src/
+predator-sense/
+*.pkg.tar.zst
+*.pkg.tar.zst.sig

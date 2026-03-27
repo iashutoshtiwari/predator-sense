@@ -1,53 +1,69 @@
-## Predator Sense™ clone for ```PH315-51-78NP``` to control fan speed on Linux. This application is intended for "Acer Predator Helios 300", 2018 model.
+# Predator Sense Helios 300 (Linux, PyQt6)
+
+Linux fan control app for Acer Predator Helios 300 `G3-572-55UB` (2017).
+
 ![Predator Sense](demo.png)
 
-## Disclaimer:
-* This program uses ```ec_sys``` kernel module to function. Check using ```find /lib/modules/$(uname -r) -type f -name '*.ko*' | grep ec_sys```. If it isn't listed, you'll have to rebuild the kernel yourself manually. Arch Linux and Ubuntu do ship the kernel with this module available.
-* Secure Boot is **not** supported.
-* Using this application with other laptops may potentially damage them. Proceed at your discretion. Though it most likely works with other **Acer Predator Helios 300** models.
-* It does **not** work with OpenBSD's root access command port, ```opendoas```. Use ```sudo``` instead when running through a terminal.
+## Safety and support scope
 
-## Minimal usage (not recommended):
-Dependencies are ```evtest``` and ***Python Qt5***.
-All you need to do is run the main script as root:
-```
-# python main.py
-```
-***Warning: This will create ```__pycache__``` owned by "root". Use ```sudo rm -rf``` to delete if desired.***
+- This build is intentionally scoped to `G3-572-55UB` only.
+- It writes to EC registers through `ec_sys`; wrong hardware mappings can damage hardware.
+- Secure Boot setups may block module/loading behavior.
+- Root privileges are required to write fan/CoolBoost values (desktop launch uses `pkexec`).
 
-## Full installation:
-Dependencies:
-* Ubuntu / Linux Mint:
-```
-sudo apt install python3-pip evtest python3-qtpy git
-```
-* Arch Linux:
-```
-sudo pacman -S python-pip evtest python-pyqt5 git
-```
----
-```
-pip install pyinstaller
-```
-```
-git clone https://github.com/mohsunb/PredatorSense.git && cd PredatorSense
-```
-```
-~/.local/bin/pyinstaller main.spec
-```
-```
-sudo ./configure.sh
-```
----
-## This is a fork of [PredatorNonSense by kphanipavan](https://github.com/kphanipavan/PredatorNonSense), customized for ```PH315-51```.
+## Runtime requirements (Arch)
 
-## Changes:
-* Added custom font (TT Squares);
-* Removed dysfunctional tabs (keyboard lighting settings, fan profiles, GPU overclock);
-* Added dark theme;
-* Added custom icon;
-* Made the window not resizeable;
-* General UI improvements;
-* Refactored the code for easier maintenance;
-* Dynamically disabled buttons to prevent unexpected behavior;
-* Global fan state is now remembered across sessions;
+- `python`
+- `python-pyqt6`
+- `polkit`
+- optional: `evtest`
+
+Kernel/runtime expectations:
+
+- `ec_sys` module available
+- debugfs mounted with `/sys/kernel/debug/ec/ec0/io`
+
+## Run from source
+
+```bash
+python -m pip install -r requirements.txt
+pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY python main.py
+```
+
+## AUR package (`predator-sense`)
+
+The repository includes `PKGBUILD` + `.SRCINFO` for a source package.
+
+Local build test:
+
+```bash
+makepkg -si
+```
+
+After install:
+
+- Launch via desktop entry **Predator Sense Helios 300**
+- or run `predator-sense`
+
+## CI checks
+
+CI validates:
+
+- Ruff lint
+- Python compile/syntax checks
+- repository smoke test (`scripts/smoke_test.py`)
+- basic `PKGBUILD` sanity checks
+
+## Manual hardware validation checklist
+
+On `G3-572-55UB`, verify:
+
+1. App launches and prompts for privilege escalation.
+2. CPU fan: Auto, Max speed, and Manual slider modes.
+3. GPU fan: Auto, Max speed, and Manual slider modes.
+4. CoolBoost toggle on/off behavior.
+5. Global Auto/Turbo controls still sync CPU+GPU behavior.
+
+## Origin
+
+This project is based on [PredatorNonSense by kphanipavan](https://github.com/kphanipavan/PredatorNonSense) and later Linux fan-control forks.
