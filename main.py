@@ -199,6 +199,97 @@ def persist_coolboost_state(enabled):
         print("Warning: failed to persist CoolBoost state:", exc)
 
 
+def build_modern_dark_stylesheet():
+    """Flat minimal dark grey UI (no blue accents)."""
+    return """
+QDialog {
+    background-color: #1a1a1a;
+    color: #d4d4d4;
+}
+QTabWidget::pane {
+    border: 1px solid #3a3a3a;
+    border-radius: 2px;
+    background-color: #222222;
+    top: -1px;
+}
+QTabBar::tab {
+    background: #1f1f1f;
+    color: #9a9a9a;
+    border: 1px solid #3a3a3a;
+    padding: 6px 12px;
+    margin-right: 2px;
+    border-top-left-radius: 2px;
+    border-top-right-radius: 2px;
+}
+QTabBar::tab:selected {
+    background: #2a2a2a;
+    color: #e6e6e6;
+    border-color: #4a4a4a;
+}
+QGroupBox {
+    border: 1px solid #3a3a3a;
+    border-radius: 2px;
+    margin-top: 10px;
+    padding-top: 10px;
+    background-color: #141414;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 8px;
+    padding: 0 4px;
+    color: #9a9a9a;
+}
+QRadioButton, QCheckBox {
+    color: #c8c8c8;
+    spacing: 6px;
+}
+QRadioButton::indicator, QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QRadioButton::indicator:unchecked, QCheckBox::indicator:unchecked {
+    border: 1px solid #4a4a4a;
+    background-color: #1a1a1a;
+    border-radius: 2px;
+}
+QRadioButton::indicator:checked, QCheckBox::indicator:checked {
+    border: 1px solid #6a6a6a;
+    background-color: #5a5a5a;
+    border-radius: 2px;
+}
+QPushButton {
+    background-color: #2a2a2a;
+    color: #e6e6e6;
+    border: 1px solid #404040;
+    border-radius: 2px;
+    padding: 6px 12px;
+}
+QPushButton:hover {
+    background-color: #333333;
+}
+QPushButton:pressed {
+    background-color: #1f1f1f;
+}
+QSlider::groove:vertical {
+    background: #2a2a2a;
+    width: 4px;
+    border-radius: 0;
+}
+QSlider::handle:vertical {
+    background: #707070;
+    border: 1px solid #5a5a5a;
+    height: 18px;
+    margin: -2px -5px;
+    border-radius: 2px;
+}
+QToolTip {
+    border: 1px solid #404040;
+    background-color: #1a1a1a;
+    color: #d4d4d4;
+}
+"""
+
+
 if not ensure_supported_hardware():
     sys.exit(1)
 
@@ -226,10 +317,11 @@ palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
 palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
 palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
 palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
-palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
-palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+palette.setColor(QPalette.ColorRole.Link, QColor(140, 140, 140))
+palette.setColor(QPalette.ColorRole.Highlight, QColor(70, 70, 70))
 palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)
 app.setPalette(palette)
+app.setStyleSheet(build_modern_dark_stylesheet())
 
 # Required for the app to have its icon when bundled with PyInstaller
 def resource_path(relative_path):
