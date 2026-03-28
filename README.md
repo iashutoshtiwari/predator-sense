@@ -55,6 +55,34 @@ CI validates:
 - repository smoke test (`scripts/smoke_test.py`)
 - basic `PKGBUILD` sanity checks
 
+## Diagnostics report script
+
+Use the collector to generate a single report file for feature parity work (temps graphing, fan validation, GPU mode support):
+
+```bash
+python scripts/collect_diagnostics.py
+```
+
+For full EC visibility, run as root:
+
+```bash
+sudo python scripts/collect_diagnostics.py
+```
+
+Optional flags:
+
+- `--output /path/to/report.txt`
+- `--gpu-sample-seconds 30`
+- `--ec-addresses 0x10 0x21 0x22 0x37 0x3A`
+
+The script is read-only and records:
+
+- system/kernel/BIOS/DMI model info
+- NVIDIA capability snapshots (`nvidia-smi`, `nvidia-settings`)
+- lm-sensors + hwmon inventory
+- EC register snapshots for relevant fan/CoolBoost addresses
+- short live GPU telemetry sample
+
 ## Manual hardware validation checklist
 
 On `G3-572-55UB`, verify:
