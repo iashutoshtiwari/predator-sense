@@ -18,13 +18,13 @@ from ui.main_window import MainWindow
 def build_modern_dark_stylesheet() -> str:
     return """
 QDialog {
-    background-color: #1a1a1a;
+    background-color: #181818;
     color: #d4d4d4;
 }
 QTabWidget::pane {
     border: 1px solid #3a3a3a;
     border-radius: 2px;
-    background-color: #222222;
+    background-color: #202020;
     top: -1px;
 }
 QTabBar::tab {
@@ -42,11 +42,11 @@ QTabBar::tab:selected {
     border-color: #4a4a4a;
 }
 QGroupBox {
-    border: 1px solid #3a3a3a;
+    border: 1px solid #E31C03;
     border-radius: 2px;
     margin-top: 10px;
     padding-top: 10px;
-    background-color: #141414;
+    background-color: #131313;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
@@ -63,11 +63,25 @@ QRadioButton::indicator, QCheckBox::indicator {
     height: 14px;
 }
 QRadioButton::indicator:unchecked, QCheckBox::indicator:unchecked {
-    border: 1px solid #4a4a4a;
-    background-color: #1a1a1a;
+    border: 1px solid #E31C03;
+    background-color: #151515;
     border-radius: 2px;
 }
 QRadioButton::indicator:checked, QCheckBox::indicator:checked {
+    border: 1px solid #E31C03;
+    background-color: #E31C03;
+    border-radius: 2px;
+    color: #ffffff;
+}
+QRadioButton:disabled, QCheckBox:disabled {
+    color: #7a7a7a;
+}
+QRadioButton::indicator:disabled, QCheckBox::indicator:disabled {
+    border: 1px solid #5c5c5c;
+    background-color: #2a2a2a;
+    border-radius: 2px;
+}
+QRadioButton::indicator:checked:disabled, QCheckBox::indicator:checked:disabled {
     border: 1px solid #6a6a6a;
     background-color: #5a5a5a;
     border-radius: 2px;
@@ -90,12 +104,19 @@ QSlider::groove:vertical {
     width: 4px;
     border-radius: 0;
 }
+QSlider::groove:vertical:disabled {
+    background: #232323;
+}
 QSlider::handle:vertical {
-    background: #707070;
-    border: 1px solid #5a5a5a;
+    background: #E31C03;
+    border: 1px solid #E31C03;
     height: 18px;
     margin: -2px -5px;
     border-radius: 2px;
+}
+QSlider::handle:vertical:disabled {
+    background: #6a6a6a;
+    border: 1px solid #5a5a5a;
 }
 QToolTip {
     border: 1px solid #404040;
@@ -144,14 +165,14 @@ def main() -> int:
     app.setStyle("Breeze")
 
     palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.Window, QColor(49, 49, 49))
     palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
     palette.setColor(QPalette.ColorRole.Base, QColor(25, 25, 25))
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(49, 49, 49))
     palette.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.black)
     palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.white)
     palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
-    palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.Button, QColor(49, 49, 49))
     palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
     palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
     palette.setColor(QPalette.ColorRole.Link, QColor(140, 140, 140))

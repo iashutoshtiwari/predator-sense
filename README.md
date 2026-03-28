@@ -20,7 +20,7 @@ Currently, only Arch Linux is supported. A prebuilt binary tarball will be provi
 
 ```bash
 python -m pip install -r requirements.txt
-pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY python src/main.py
+sudo python src/main.py
 ```
 
 ## Run From PKGBUILD
