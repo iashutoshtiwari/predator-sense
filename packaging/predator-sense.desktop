@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Predator Sense™
-Comment=Fan and CoolBoost control for Predator Helios 300 G3-572-55UB
+Comment=Fan control for Predator Helios 300 G3-572
 Exec=/usr/bin/predator-sense
 Icon=/usr/share/predator-sense/app_icon.ico
 Terminal=false
