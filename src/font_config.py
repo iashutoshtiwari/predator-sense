@@ -16,7 +16,13 @@ def fonts_directory() -> str:
         base = sys._MEIPASS  # PyInstaller bundle
     except AttributeError:
         base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, "fonts")
+
+    direct = os.path.join(base, "fonts")
+    if os.path.isdir(direct):
+        return direct
+
+    parent = os.path.join(os.path.dirname(base), "fonts")
+    return parent
 
 
 def apply_ui_family(name: str) -> None:

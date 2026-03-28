@@ -27,7 +27,7 @@ Kernel/runtime expectations:
 
 ```bash
 python -m pip install -r requirements.txt
-pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY python main.py
+pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY python src/main.py
 ```
 
 ## AUR package (`predator-sense`)

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import json
 import os
+import sys
 import time
 
-from ecwrite import ec_read, ec_write, ensure_ec_access
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
+from core.hardware import ec_read, ec_write, ensure_ec_access
 
 STATE_FILE = "/var/lib/predator-sense/state.json"
 COOL_BOOST_CONTROL = 0x10

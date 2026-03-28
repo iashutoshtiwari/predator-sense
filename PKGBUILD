@@ -20,11 +20,22 @@ package() {
   cd "${startdir}"
 
   install -dm755 "${pkgdir}/usr/share/predator-sense"
-  install -m644 main.py "${pkgdir}/usr/share/predator-sense/main.py"
+  install -dm755 "${pkgdir}/usr/share/predator-sense/src"
+  install -dm755 "${pkgdir}/usr/share/predator-sense/src/core"
+  install -dm755 "${pkgdir}/usr/share/predator-sense/src/ui"
+
+  install -m644 src/main.py "${pkgdir}/usr/share/predator-sense/src/main.py"
+  install -m644 src/frontend.py "${pkgdir}/usr/share/predator-sense/src/frontend.py"
+  install -m644 src/font_config.py "${pkgdir}/usr/share/predator-sense/src/font_config.py"
+  install -m644 src/core/__init__.py "${pkgdir}/usr/share/predator-sense/src/core/__init__.py"
+  install -m644 src/core/logger.py "${pkgdir}/usr/share/predator-sense/src/core/logger.py"
+  install -m644 src/core/env_checks.py "${pkgdir}/usr/share/predator-sense/src/core/env_checks.py"
+  install -m644 src/core/hardware.py "${pkgdir}/usr/share/predator-sense/src/core/hardware.py"
+  install -m644 src/core/profiles.py "${pkgdir}/usr/share/predator-sense/src/core/profiles.py"
+  install -m644 src/ui/__init__.py "${pkgdir}/usr/share/predator-sense/src/ui/__init__.py"
+  install -m644 src/ui/main_window.py "${pkgdir}/usr/share/predator-sense/src/ui/main_window.py"
+
   install -m644 background_service.py "${pkgdir}/usr/share/predator-sense/background_service.py"
-  install -m644 frontend.py "${pkgdir}/usr/share/predator-sense/frontend.py"
-  install -m644 ecwrite.py "${pkgdir}/usr/share/predator-sense/ecwrite.py"
-  install -m644 font_config.py "${pkgdir}/usr/share/predator-sense/font_config.py"
   install -m644 app_icon.ico "${pkgdir}/usr/share/predator-sense/app_icon.ico"
 
   install -dm755 "${pkgdir}/usr/share/predator-sense/fonts"

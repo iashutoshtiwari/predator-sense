@@ -16,7 +16,6 @@ dist/
 
 # makepkg artifacts
 pkg/
-src/
 predator-sense/
 *.pkg.tar.zst
 *.pkg.tar.zst.sig

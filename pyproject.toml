@@ -6,4 +6,4 @@ target-version = "py312"
 select = ["E", "F"]
 
 [tool.ruff.lint.per-file-ignores]
-"frontend.py" = ["E501"]
+"src/frontend.py" = ["E501"]
