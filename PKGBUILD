@@ -46,6 +46,7 @@ package() {
 
   install -dm755 "${pkgdir}/usr/bin"
   install -m755 packaging/predator-sense "${pkgdir}/usr/bin/predator-sense"
+  install -m755 packaging/predator-sense-root "${pkgdir}/usr/bin/predator-sense-root"
 
   install -dm755 "${pkgdir}/usr/share/applications"
   install -m644 packaging/predator-sense.desktop "${pkgdir}/usr/share/applications/predator-sense.desktop"

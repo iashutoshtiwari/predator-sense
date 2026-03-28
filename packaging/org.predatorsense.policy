@@ -8,13 +8,13 @@
   <icon_name>predator-sense</icon_name>
   <action id="org.predatorsense.launch">
     <description>Launch Predator Sense</description>
-    <message>Authentication required.</message>
+    <message>Authentication is required to launch Predator Sense.</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/python</annotate>
-    <annotate key="org.freedesktop.policykit.exec.argv1">/usr/share/predator-sense/src/main.py</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/predator-sense-root</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
   </action>
 </policyconfig>
