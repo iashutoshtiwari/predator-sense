@@ -151,24 +151,6 @@ class Ui_PredatorSense(object):
 
         self.retranslateUi(PredatorSense)
         self.fan_control_tab.setCurrentIndex(0)
-        self.global_turbo.clicked.connect(self.cpu_turbo.setChecked)
-        self.global_turbo.clicked.connect(self.gpu_turbo.setChecked)
-        self.global_auto.clicked.connect(self.cpu_auto.setChecked)
-        self.global_auto.clicked.connect(self.gpu_auto.setChecked)
-        self.cpu_manual.toggled.connect(self.verticalSlider.setEnabled)
-
-        self.gpu_manual.toggled.connect(self.verticalSlider_2.setEnabled)
-
-        # Prevents the user from disabling max cpu or gpu fan mode individually when global turbo mode is enabled
-        self.global_turbo.toggled.connect(self.cpu_auto.setDisabled)
-        self.global_turbo.toggled.connect(self.cpu_manual.setDisabled)
-        self.global_turbo.toggled.connect(self.gpu_auto.setDisabled)
-        self.global_turbo.toggled.connect(self.gpu_manual.setDisabled)
-
-        # A hacky solution: eliminates the need for turbo button to listen to cpu and gpu buttons at the same time
-        self.cpu_turbo.toggled.connect(self.gpu_turbo.setDisabled)
-        self.gpu_turbo.toggled.connect(self.cpu_turbo.setDisabled)
-
         QtCore.QMetaObject.connectSlotsByName(PredatorSense)
 
     def retranslateUi(self, PredatorSense):

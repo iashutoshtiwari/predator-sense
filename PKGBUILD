@@ -31,6 +31,8 @@ package() {
   install -m644 src/core/logger.py "${pkgdir}/usr/share/predator-sense/src/core/logger.py"
   install -m644 src/core/env_checks.py "${pkgdir}/usr/share/predator-sense/src/core/env_checks.py"
   install -m644 src/core/hardware.py "${pkgdir}/usr/share/predator-sense/src/core/hardware.py"
+  install -m644 src/core/errors.py "${pkgdir}/usr/share/predator-sense/src/core/errors.py"
+  install -m644 src/core/state.py "${pkgdir}/usr/share/predator-sense/src/core/state.py"
   install -m644 src/core/profiles.py "${pkgdir}/usr/share/predator-sense/src/core/profiles.py"
   install -m644 src/ui/__init__.py "${pkgdir}/usr/share/predator-sense/src/ui/__init__.py"
   install -m644 src/ui/main_window.py "${pkgdir}/usr/share/predator-sense/src/ui/main_window.py"

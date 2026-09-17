@@ -1,39 +1,80 @@
+"""DMI identity and explicit application startup preparation (not backend probing)."""
+
 from __future__ import annotations
 
-import shutil
+from pathlib import Path
+import subprocess
 
+from core.errors import ErrorCode, HardwareError
 from core.logger import get_logger
-
+from core.profiles import EC_IO_FILE, HardwareIdentity, SUPPORTED_PRODUCT, TESTED_BIOS
 
 logger = get_logger(__name__)
-SUPPORTED_MODEL_SUBSTRING = "G3-572"
-DMI_PRODUCT_NAME_PATH = "/sys/class/dmi/id/product_name"
+DMI_PRODUCT_NAME_PATH = Path("/sys/class/dmi/id/product_name")
+DMI_BIOS_VERSION_PATH = Path("/sys/class/dmi/id/bios_version")
 
 
-def _read_dmi_product_name() -> str:
+def get_hardware_identity() -> HardwareIdentity:
     try:
-        with open(DMI_PRODUCT_NAME_PATH, "r", encoding="utf-8") as file_handle:
-            return file_handle.read().strip()
-    except OSError as exc:
-        logger.error("Unable to read DMI product name from %s: %s", DMI_PRODUCT_NAME_PATH, exc)
-        return "Unknown"
+        product = " ".join(DMI_PRODUCT_NAME_PATH.read_text(encoding="utf-8").split())
+    except (OSError, UnicodeError) as exc:
+        raise HardwareError(ErrorCode.IDENTITY_UNAVAILABLE, f"Cannot read DMI product name: {exc}") from exc
+    if not product:
+        raise HardwareError(ErrorCode.IDENTITY_UNAVAILABLE, "DMI product name is empty")
+    try:
+        bios = " ".join(DMI_BIOS_VERSION_PATH.read_text(encoding="utf-8").split()) or None
+    except (OSError, UnicodeError):
+        bios = None
+    return HardwareIdentity(product, bios)
+
+
+def require_supported_identity() -> HardwareIdentity:
+    identity = get_hardware_identity()
+    if not identity.supported:
+        raise HardwareError(
+            ErrorCode.UNSUPPORTED_HARDWARE,
+            f"Unsupported product {identity.product_name!r}; requires {SUPPORTED_PRODUCT!r}",
+        )
+    return identity
 
 
 def run_env_checks() -> bool:
-    pkexec_path = shutil.which("pkexec")
-    sudo_path = shutil.which("sudo")
-
-    if pkexec_path or sudo_path:
-        logger.info("Privilege helper check passed (pkexec=%s, sudo=%s)", bool(pkexec_path), bool(sudo_path))
-    else:
-        logger.warning("Neither pkexec nor sudo was found in PATH")
-
-    product_name = _read_dmi_product_name()
-    logger.info("Detected DMI product name: %s", product_name)
-
-    if SUPPORTED_MODEL_SUBSTRING not in product_name:
-        logger.critical("Unsupported hardware detected: %s", product_name)
+    try:
+        identity = require_supported_identity()
+    except HardwareError as exc:
+        logger.error("Hardware identity check failed [%s]: %s", exc.code.value, exc)
         return False
-
-    logger.info("Hardware support check passed for model containing %s", SUPPORTED_MODEL_SUBSTRING)
+    logger.info("Hardware: %s; BIOS: %s", identity.product_name, identity.bios_version or "unavailable")
+    if not identity.tested_bios:
+        logger.warning("This BIOS has not been validated; tested BIOS is %s", TESTED_BIOS)
     return True
+
+
+def ensure_ec_access() -> bool:
+    """Explicit privileged startup preparation, retained for the GUI and service.
+
+    Never called by G3572EcBackend. No sudo/pkexec and no EC writes. A future
+    daemon can own this preparation without changing the hardware API.
+    """
+    try:
+        require_supported_identity()
+        try:
+            with open(EC_IO_FILE, "rb"):
+                return True
+        except FileNotFoundError:
+            logger.info("EC interface missing; preparing ec_sys with write support")
+        result = subprocess.run(
+            ["modprobe", "ec_sys", "write_support=1"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if result.returncode:
+            logger.error("ec_sys preparation failed: %s", result.stderr.strip())
+            return False
+        with open(EC_IO_FILE, "rb"):
+            return True
+    except (HardwareError, OSError, subprocess.TimeoutExpired) as exc:
+        logger.error("Cannot prepare EC access: %s", exc)
+        return False

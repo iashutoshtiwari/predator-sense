@@ -14,7 +14,9 @@ Linux fan control application for Acer Predator Helios 300 (`G3-572-55UB`).
 
 ## Support Status
 
-Currently, only Arch Linux is supported. A prebuilt binary tarball will be provided soon.
+Arch Linux, CachyOS, and compatible Arch-derived distributions are supported.
+Hardware access requires the exact normalized DMI product name `Predator G3-572`.
+BIOS `V1.22` is the tested version; other BIOS versions are reported as unvalidated.
 
 ## Run From Source
 
@@ -28,6 +30,22 @@ sudo python src/main.py
 ```bash
 makepkg -si
 predator-sense
+```
+
+## Hardware backend and development
+
+The GUI and CoolBoost service share a guarded G3-572 backend with verified writes,
+explicit unknown states, and candidate fan RPM reads. The GUI does not display
+telemetry. See [ARCHITECTURE.md](ARCHITECTURE.md) for the API, evidence limits, and
+remaining physical validation. Startup may prepare `ec_sys` after verifying DMI;
+the backend itself never escalates privileges or loads modules.
+
+Hardware-free checks (Python 3.12, dependencies from `requirements-dev.txt`):
+
+```bash
+ruff check .
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
+python scripts/smoke_test.py
 ```
 
 ## Disclaimer

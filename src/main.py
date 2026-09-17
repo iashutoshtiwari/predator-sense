@@ -7,10 +7,9 @@ from PyQt6 import QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPalette
 
-from core.env_checks import run_env_checks
-from core.hardware import ensure_ec_access
+from core.env_checks import ensure_ec_access, run_env_checks
+from core.hardware import G3572EcBackend
 from core.logger import get_logger
-from core.profiles import G3_572_PROFILE
 from font_config import UI_FONT_FAMILY, apply_ui_family, register_bundled_fonts
 from ui.main_window import MainWindow
 
@@ -154,13 +153,19 @@ def main() -> int:
         logger.critical("EC access check failed; exiting")
         return 1
 
+    backend = G3572EcBackend()
+    status = backend.probe()
+    if not status.writable:
+        logger.critical("Hardware backend unavailable: %s", status.error)
+        return 1
+
     app = QtWidgets.QApplication([])
     primary_family = register_bundled_fonts()
     if primary_family:
         apply_ui_family(primary_family)
     app.setFont(QtGui.QFont(UI_FONT_FAMILY, 10))
 
-    application = MainWindow(G3_572_PROFILE)
+    application = MainWindow(backend)
     application.setFixedSize(635, 465)
     app.setStyle("Breeze")
 

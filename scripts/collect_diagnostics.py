@@ -17,8 +17,17 @@ import sys
 import time
 from typing import Iterable
 
-EC_IO_PATH = pathlib.Path("/sys/kernel/debug/ec/ec0/io")
-DEFAULT_EC_ADDRESSES = (0x10, 0x21, 0x22, 0x37, 0x3A)
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
+
+from core.errors import HardwareError
+from core.hardware import G3572EcBackend
+from core.profiles import (
+    BYTE_READ_REGISTERS, CONTROL_REGISTERS, COOLBOOST_REGISTER, EC_IO_FILE,
+    MODE_REGISTERS, RPM_REGISTERS, WORD_READ_REGISTERS, FanChannel,
+)
+
+EC_IO_PATH = pathlib.Path(EC_IO_FILE)
+DEFAULT_EC_ADDRESSES = tuple(sorted(BYTE_READ_REGISTERS | WORD_READ_REGISTERS))
 
 
 def shell_join(parts: Iterable[str]) -> str:
@@ -69,29 +78,21 @@ def append_file(output: list[str], title: str, path: pathlib.Path) -> None:
 
 
 def append_ec_registers(output: list[str], addresses: tuple[int, ...]) -> None:
-    write_section(output, "EC Register Snapshot")
+    write_section(output, "EC State (decoded values; RPM uses word reads)")
     output.append(f"ec_io_path: {EC_IO_PATH}")
 
-    if not EC_IO_PATH.exists():
-        output.append("status: missing")
-        output.append("hint: mount debugfs and load ec_sys (write_support=1).")
-        return
-
-    if not os.access(EC_IO_PATH, os.R_OK):
-        output.append("status: not readable (try running with sudo/pkexec)")
-        return
-
-    try:
-        with EC_IO_PATH.open("rb") as ec_file:
-            for addr in addresses:
-                ec_file.seek(addr)
-                value = ec_file.read(1)
-                if not value:
-                    output.append(f"0x{addr:02X}: <no data>")
-                    continue
-                output.append(f"0x{addr:02X}: 0x{value[0]:02X} ({value[0]})")
-    except OSError as exc:
-        output.append(f"status: error reading EC: {exc}")
+    backend = G3572EcBackend()
+    readers = {COOLBOOST_REGISTER: backend.get_coolboost}
+    for channel in FanChannel:
+        readers[MODE_REGISTERS[channel]] = lambda c=channel: backend.get_fan_mode(c).value
+        readers[CONTROL_REGISTERS[channel]] = lambda c=channel: backend.get_manual_speed(c)
+        readers[RPM_REGISTERS[channel]] = lambda c=channel: backend.get_fan_rpm(c)
+    for address in addresses:
+        try:
+            value = readers[address]()
+            output.append(f"0x{address:02X}: {value if value is not None else 'unavailable'}")
+        except HardwareError as exc:
+            output.append(f"0x{address:02X}: unavailable [{exc.code.value}]: {exc}")
 
 
 def append_hwmon_inventory(output: list[str]) -> None:
@@ -185,7 +186,10 @@ def parse_ec_addresses(raw: list[str]) -> tuple[int, ...]:
     values: list[int] = []
     for item in raw:
         try:
-            values.append(int(item, 0))
+            value = int(item, 0)
+            if value not in BYTE_READ_REGISTERS | WORD_READ_REGISTERS:
+                raise ValueError("outside the supported G3-572 read registers")
+            values.append(value)
         except ValueError as exc:
             raise SystemExit(f"Invalid EC address: {item}") from exc
     return tuple(values)

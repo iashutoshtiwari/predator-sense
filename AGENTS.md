@@ -3,30 +3,37 @@
 ## Project scope
 
 Predator Sense is a Python/PyQt6 desktop fan-control app for the Acer Predator
-Helios 300 (2017), model G3-572-55UB. Arch Linux is the supported distribution;
-CI runs static checks on Ubuntu with Python 3.12. This is a source-based desktop
+Helios 300 (2017), model G3-572-55UB. Arch Linux, CachyOS, and compatible Arch-derived distributions are supported;
+CI runs static and hardware-free behavioral checks on Ubuntu with Python 3.12. This is a source-based desktop
 app, not a web app or an installable Python package. Runtime dependencies are
 PyQt6, Python, and polkit; see `requirements.txt` and `PKGBUILD`.
 
 Features currently implemented: CPU/GPU Auto, Manual, and Turbo fan modes,
 global Auto/Turbo controls, and persistent CoolBoost. Diagnostics can inspect
-NVIDIA tools, but GPU overclocking and telemetry are not implemented app features.
+NVIDIA tools; the backend exposes candidate fan RPM reads, but there is no live
+telemetry display or GPU overclocking feature.
+
+Read [ARCHITECTURE.md](ARCHITECTURE.md) for the audited runtime and packaging,
+G3-572 hardware evidence, Phase 1 backend contract, and remaining audit risks.
+It distinguishes implemented safeguards from outstanding physical validation. Keep it current when changing the architecture or hardware contract.
 
 ## Where to work
 
 | File | Responsibility |
 | --- | --- |
 | `src/main.py` | Entry point, environment/EC checks, QApplication, palette/styles, icon, fixed 635 × 465 window. |
-| `src/frontend.py` | Widget construction, labels, geometry, and UI-only signal connections (`Ui_PredatorSense`). |
+| `src/frontend.py` | Widget construction, labels, and geometry (`Ui_PredatorSense`). |
 | `src/ui/main_window.py` | `MainWindow`, hardware-facing signal handlers, initial fan state, CoolBoost persistence. |
-| `src/core/profiles.py` | Frozen `ModelProfile`, `PFS` enum, and G3-572 EC register/mode values. |
-| `src/core/hardware.py` | EC byte reads/writes, EC access preparation, bounded subprocess helper. |
-| `src/core/env_checks.py` | DMI model check; currently requires product name containing `G3-572`. |
+| `src/core/profiles.py` | Single G3-572 constant map, `FanChannel`, `FanMode`, identity/status types. |
+| `src/core/hardware.py` | `G3572EcBackend`, private EC transport, locking, verified semantic operations. |
+| `src/core/env_checks.py` | Exact normalized DMI identity gate and explicit bounded startup EC preparation. |
+| `src/core/errors.py`, `src/core/state.py` | Structured hardware failures and shared atomic CoolBoost persistence. |
 | `src/core/logger.py` | Console logging and rotating file logs. |
 | `src/font_config.py`, `fonts/` | Bundled Squares font registration and QFont helpers. |
 | `background_service.py` | Independent loop that reapplies saved CoolBoost state every 15 seconds. |
 | `packaging/`, `predator-sense.install` | Launchers, desktop entry, polkit policy, systemd unit, package lifecycle hooks. |
 | `PKGBUILD`, `.SRCINFO` | Arch package recipe and metadata. |
+| `tests/` | Hardware-free backend, controller, service, and diagnostics checks using unittest. |
 | `scripts/smoke_test.py` | Required-file presence check only. |
 | `scripts/collect_diagnostics.py` | Read-only system/EC diagnostics, written to a report file. |
 | `.github/workflows/ci.yml`, `pyproject.toml` | Authoritative CI commands and Ruff configuration. |
@@ -37,26 +44,26 @@ unrelated local work.
 
 ## Hardware and runtime constraints
 
-- EC I/O is `/sys/kernel/debug/ec/ec0/io`. `ensure_ec_access()` may invoke
-  `modprobe ec_sys write_support=1`; it is not a read-only environment probe.
-- Keep hardware values in `ModelProfile`. Do not infer register addresses or
-  extend supported models without model-specific evidence. Preserve the DMI gate.
-- `ec_read()` returns an integer or `None`; `ec_write()` returns success/failure
-  and skips unchanged bytes. Handle failures explicitly, including valid zero
-  values. EC writes require byte-sized values.
-- The manual sliders currently map levels 0–10 to EC values 0–100 using
-  `level * 10`. Preserve this mapping unless the task explicitly changes it.
-- Constructing `MainWindow` reads hardware and can write Auto mode when a register
-  value is unknown. `QT_QPA_PLATFORM=offscreen` alone does not make it safe to run.
-- For automated UI checks, stub `ec_read`/`ec_write` in `ui.main_window` before
-  constructing the window and redirect its `STATE_FILE` to a temporary location.
-  Use `PYTHONPATH=src` for imports from repository-root test scripts. Patch symbols
-  where they are used: these modules import hardware functions directly.
-- UI and service share `/var/lib/predator-sense/state.json`, with the JSON key
-  `coolboost_enabled`. Keep both readers/writers compatible. Missing state or invalid
-  JSON makes the service select CoolBoost off. The service has duplicated
-  CoolBoost constants and does not call the GUI's DMI check; review it alongside
-  profile or hardware-support changes.
+- EC I/O is `/sys/kernel/debug/ec/ec0/io`. The backend never prepares the system
+  or escalates privileges. `core.env_checks.ensure_ec_access()` is an explicit
+  startup step that may run `modprobe ec_sys write_support=1` after the DMI gate.
+- Keep hardware constants in `core/profiles.py`. Only normalized product name
+  `Predator G3-572` is accepted. Preserve the gate on every backend transaction;
+  do not expose a public raw-address writer or add other model support.
+- Backend operations raise `HardwareError` with an `ErrorCode`; unknown modes
+  return `FanMode.UNKNOWN`, unknown CoolBoost/manual control and implausible RPM
+  return `None`. Zero is valid. Writes are allow-listed, skip unchanged bytes,
+  and verify readback. Manual mode plus its control write share a transaction.
+- Sliders map levels 0–10 to percentages 0–100 using `level * 10`. Preserve this
+  mapping; the backend rejects non-integer inputs and clamps integer percentages.
+- MainWindow startup reads state without writing. Automated UI checks must still
+  inject a fake backend before constructing it and redirect `ui.main_window.STATE_FILE`;
+  offscreen Qt does not prevent hardware I/O. `tests/support.py` redirects DMI,
+  EC paths, and logging; use `PYTHONPATH=src` for repository-root tests.
+- UI and service share `/var/lib/predator-sense/state.json` and the boolean key
+  `coolboost_enabled`, through `core/state.py`. Missing/malformed state selects
+  off. The service uses the same guarded backend and skips automatic reapplication
+  when the CoolBoost read is unknown or fails. Keep these paths compatible.
 - Importing modules that initialize a logger creates log directories/files under
   `Path.home() / ".local/state/predator-sense/app.log"`. Privileged launches may
   therefore log under root's home. In isolated tests, configure the logger's
@@ -81,17 +88,11 @@ The existing CI checks are:
 
 ```bash
 ruff check .
-python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py scripts/smoke_test.py
+python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py scripts/smoke_test.py background_service.py scripts/collect_diagnostics.py
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 python scripts/smoke_test.py
 test -f PKGBUILD
 grep -q '^pkgname=predator-sense' PKGBUILD
-```
-
-When changing the service or diagnostics, also compile them; CI's explicit list
-does not currently include them:
-
-```bash
-python -m py_compile background_service.py scripts/collect_diagnostics.py
 ```
 
 For shell/packaging edits, syntax-check without executing the hooks:
@@ -102,12 +103,10 @@ for file in PKGBUILD predator-sense.install packaging/predator-sense packaging/p
 done
 ```
 
-There is no behavioral test suite or configured pytest dependency. The smoke test
-does not verify fan control, UI interactions, or packaging correctness. For
-behavioral changes, add focused checks with mocked hardware and temporary state;
-report separately what was checked statically and what was exercised. Do not claim
-hardware validation from a passing smoke test. If tooling is unavailable, state
-which checks could not run.
+Behavioral tests use standard-library unittest, fake EC transports/temporary files,
+normalized DMI fixtures, temporary state/logs, and offscreen PyQt6. No pytest or root
+is needed. The smoke test checks file presence only. Report static checks and
+mocked behavior separately; neither proves physical hardware behavior.
 
 ## Editing conventions
 
@@ -121,9 +120,9 @@ which checks could not run.
 - `frontend.py` has a generated-file warning, but its referenced `dialog.ui` is
   not tracked. Edit the checked-in Python carefully; do not assume it can be
   regenerated or overwrite its custom font helpers and signal wiring.
-- Radio-button `toggled` fires on both selection and deselection. Existing
-  hardware handlers discard the boolean; review signal order and resulting EC
-  writes when changing mode controls, including global controls and startup.
+- Radio-button `toggled` fires on both selection and deselection. The controller
+  uses `clicked` for hardware actions and blocks signals while refreshing observed
+  state. Preserve zero-write startup and test global/individual transitions.
 - Use `font_config` helpers for new widgets. Preserve asset lookup for source,
   installed, and PyInstaller layouts. Check geometry against the fixed window
   size when changing UI layout.

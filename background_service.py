@@ -1,46 +1,46 @@
 #!/usr/bin/env python3
-import json
+"""Reapply the saved CoolBoost preference through the guarded hardware backend."""
 import os
 import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from core.hardware import ec_read, ec_write, ensure_ec_access
+from core.env_checks import ensure_ec_access, run_env_checks
+from core.errors import ErrorCode, HardwareError
+from core.hardware import G3572EcBackend
+from core.logger import get_logger
+from core.state import STATE_FILE, load_coolboost_state
 
-STATE_FILE = "/var/lib/predator-sense/state.json"
-COOL_BOOST_CONTROL = 0x10
-COOL_BOOST_ON = 0x01
-COOL_BOOST_OFF = 0x00
+logger = get_logger(__name__)
 SLEEP_SECONDS = 15
 
 
 def read_state():
-    try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return bool(data.get("coolboost_enabled", False))
-    except (OSError, json.JSONDecodeError):
-        return False
+    return load_coolboost_state(STATE_FILE)
 
 
-def apply_coolboost(enabled):
-    target = COOL_BOOST_ON if enabled else COOL_BOOST_OFF
-    current = ec_read(COOL_BOOST_CONTROL)
-    if current != target:
-        ec_write(COOL_BOOST_CONTROL, target)
+def apply_coolboost(backend: G3572EcBackend, enabled: bool):
+    current = backend.get_coolboost()
+    if current is None:
+        raise HardwareError(ErrorCode.MALFORMED_READ, "CoolBoost state unknown; automatic reapplication skipped")
+    if current != enabled:
+        backend.set_coolboost(enabled)
 
 
 def main():
-    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-    if not ensure_ec_access():
+    if not run_env_checks() or not ensure_ec_access():
         raise SystemExit(1)
-
+    backend = G3572EcBackend()
+    status = backend.probe()
+    if not status.writable:
+        logger.error("CoolBoost backend unavailable: %s", status.error)
+        raise SystemExit(1)
     while True:
         try:
-            apply_coolboost(read_state())
-        except OSError as exc:
-            print("CoolBoost service I/O error:", exc)
+            apply_coolboost(backend, read_state())
+        except HardwareError as exc:
+            logger.error("CoolBoost reapplication failed [%s]: %s", exc.code.value, exc)
         time.sleep(SLEEP_SECONDS)
 
 

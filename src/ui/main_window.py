@@ -1,134 +1,125 @@
 from __future__ import annotations
 
-import json
-import os
-import sys
+from PyQt6 import QtCore, QtWidgets
 
-from PyQt6 import QtWidgets
-
-from core.hardware import (
-    ec_read,
-    ec_write,
-)
+from core.errors import HardwareError
+from core.hardware import G3572EcBackend
 from core.logger import get_logger
-from core.profiles import ModelProfile, PFS
+from core.profiles import FanChannel, FanMode
+from core.state import STATE_FILE, save_coolboost_state
 from frontend import Ui_PredatorSense
 
-
 logger = get_logger(__name__)
-STATE_FILE = "/var/lib/predator-sense/state.json"
 
 
 class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
-    def __init__(self, profile: ModelProfile):
+    def __init__(self, backend: G3572EcBackend):
         super().__init__()
-        self.profile = profile
+        self.backend = backend
         self.setupUi(self)
+        self._refresh()
 
-        self.cb = ec_read(self.profile.cool_boost_control) == 1
-        if self.cb:
-            self.coolboost_checkbox.setChecked(True)
-
-        cpu_raw = ec_read(self.profile.cpu_fan_mode_control)
-        gpu_raw = ec_read(self.profile.gpu_fan_mode_control)
-
-        t1 = False
-        t2 = False
-
-        if cpu_raw in self.profile.cpu_auto_values:
-            self.cpuFanMode = PFS.Auto
-            self.cpu_auto.setChecked(True)
-        elif cpu_raw in self.profile.cpu_turbo_values:
-            self.cpuFanMode = PFS.Turbo
-            self.cpu_turbo.setChecked(True)
-            t1 = True
-        elif cpu_raw in self.profile.cpu_manual_values:
-            self.cpuFanMode = PFS.Manual
-            self.cpu_manual.setChecked(True)
-        else:
-            logger.warning("Unknown CPU fan mode value %s. Falling back to auto mode.", cpu_raw)
-            self.cpuauto()
-
-        if gpu_raw in self.profile.gpu_auto_values:
-            self.gpuFanMode = PFS.Auto
-            self.gpu_auto.setChecked(True)
-        elif gpu_raw in self.profile.gpu_turbo_values:
-            self.gpuFanMode = PFS.Turbo
-            self.gpu_turbo.setChecked(True)
-            t2 = True
-        elif gpu_raw in self.profile.gpu_manual_values:
-            self.gpuFanMode = PFS.Manual
-            self.gpu_manual.setChecked(True)
-        else:
-            logger.warning("Unknown GPU fan mode value %s. Falling back to auto mode.", gpu_raw)
-            self.gpuauto()
-
-        if t1 and t2:
-            self.global_turbo.setChecked(True)
-
-        self.cpu_auto.toggled.connect(lambda _: self.cpuauto())
-        self.cpu_turbo.toggled.connect(lambda _: self.cpumax())
-        self.gpu_auto.toggled.connect(lambda _: self.gpuauto())
-        self.gpu_turbo.toggled.connect(lambda _: self.gpumax())
+        for channel, auto, manual, turbo, slider in self._fan_controls():
+            auto.clicked.connect(lambda checked, c=channel: checked and self._set_mode(c, FanMode.AUTO))
+            turbo.clicked.connect(lambda checked, c=channel: checked and self._set_mode(c, FanMode.TURBO))
+            manual.clicked.connect(lambda checked, c=channel: checked and self._set_mode(c, FanMode.MANUAL))
+            slider.valueChanged.connect(lambda level, c=channel: self._set_manual(c, level))
+        self.global_auto.clicked.connect(lambda checked: checked and self._set_global(FanMode.AUTO))
+        self.global_turbo.clicked.connect(lambda checked: checked and self._set_global(FanMode.TURBO))
         self.coolboost_checkbox.clicked.connect(self.toggle_cb)
-        self.verticalSlider.valueChanged.connect(self.cpumanual)
-        self.verticalSlider_2.valueChanged.connect(self.gpumanual)
-        self.cpu_manual.toggled.connect(lambda _: self.cpusetmanual())
-        self.gpu_manual.toggled.connect(lambda _: self.gpusetmanual())
-        self.exit_button.clicked.connect(self._exit_app)
+        self.exit_button.clicked.connect(self.close)
 
-    def _exit_app(self):
-        logger.info("Exiting PredatorSense")
-        sys.exit(0)
+    def _fan_controls(self):
+        return (
+            (FanChannel.CPU, self.cpu_auto, self.cpu_manual, self.cpu_turbo, self.verticalSlider),
+            (FanChannel.GPU, self.gpu_auto, self.gpu_manual, self.gpu_turbo, self.verticalSlider_2),
+        )
 
-    def cpumax(self):
-        if ec_write(self.profile.cpu_fan_mode_control, self.profile.cpu_turbo_mode):
-            self.cpuFanMode = PFS.Turbo
+    @staticmethod
+    def _select(buttons, selected):
+        # Allow an honest empty selection for UNKNOWN and mixed global states.
+        for button in buttons:
+            button.setAutoExclusive(False)
+            button.setChecked(button is selected)
+        for button in buttons:
+            button.setAutoExclusive(True)
 
-    def gpumax(self):
-        if ec_write(self.profile.gpu_fan_mode_control, self.profile.gpu_turbo_mode):
-            self.gpuFanMode = PFS.Turbo
+    def _read(self, operation, fallback):
+        try:
+            return operation()
+        except HardwareError as exc:
+            logger.warning("Hardware read failed [%s]: %s", exc.code.value, exc)
+            return fallback
 
-    def cpuauto(self):
-        if ec_write(self.profile.cpu_fan_mode_control, self.profile.cpu_auto_mode):
-            self.cpuFanMode = PFS.Auto
+    def _refresh(self):
+        controls = [self.global_auto, self.global_turbo, self.coolboost_checkbox]
+        controls.extend(widget for _, *widgets in self._fan_controls() for widget in widgets)
+        blockers = [QtCore.QSignalBlocker(widget) for widget in controls]
+        try:
+            modes = []
+            for channel, auto, manual, turbo, slider in self._fan_controls():
+                mode = self._read(lambda: self.backend.get_fan_mode(channel), FanMode.UNKNOWN)
+                percent = self._read(lambda: self.backend.get_manual_speed(channel), None)
+                modes.append(mode)
+                selected = {
+                    FanMode.AUTO: auto,
+                    FanMode.FIRMWARE_AUTO: auto,
+                    FanMode.MANUAL: manual,
+                    FanMode.TURBO: turbo,
+                }.get(mode)
+                self._select((auto, manual, turbo), selected)
+                if percent is not None:
+                    slider.setValue((percent + 5) // 10)
+                slider.setEnabled(mode == FanMode.MANUAL and percent is not None)
+                slider.setToolTip("Manual control unavailable" if percent is None else f"Observed control: {percent}%")
+                box = self.cpu_box if channel == FanChannel.CPU else self.gpu_box
+                box.setToolTip("Fan mode unavailable or unknown" if mode == FanMode.UNKNOWN else mode.value)
+            self.cpuFanMode, self.gpuFanMode = modes
+            global_selected = None
+            if all(mode in (FanMode.AUTO, FanMode.FIRMWARE_AUTO) for mode in modes):
+                global_selected = self.global_auto
+            elif all(mode == FanMode.TURBO for mode in modes):
+                global_selected = self.global_turbo
+            self._select((self.global_auto, self.global_turbo), global_selected)
+            self.cb = self._read(self.backend.get_coolboost, None)
+            self.coolboost_checkbox.setTristate(self.cb is None)
+            if self.cb is None:
+                self.coolboost_checkbox.setCheckState(QtCore.Qt.CheckState.PartiallyChecked)
+            else:
+                self.coolboost_checkbox.setChecked(self.cb)
+        finally:
+            del blockers
 
-    def gpuauto(self):
-        if ec_write(self.profile.gpu_fan_mode_control, self.profile.gpu_auto_mode):
-            self.gpuFanMode = PFS.Auto
+    def _apply(self, operation):
+        try:
+            operation()
+        except (HardwareError, OSError) as exc:
+            logger.error("Control action failed: %s", exc)
+            self._refresh()
+            QtWidgets.QMessageBox.warning(self, "Fan control failed", str(exc))
+            return
+        self._refresh()
 
-    def toggle_cb(self, toggled: bool):
-        if toggled:
-            logger.info("CoolBoost toggled on")
-            ec_write(self.profile.cool_boost_control, self.profile.cool_boost_on)
-        else:
-            logger.info("CoolBoost toggled off")
-            ec_write(self.profile.cool_boost_control, self.profile.cool_boost_off)
-        persist_coolboost_state(toggled)
+    def _set_mode(self, channel: FanChannel, mode: FanMode):
+        slider = self.verticalSlider if channel == FanChannel.CPU else self.verticalSlider_2
+        percent = slider.value() * 10 if mode == FanMode.MANUAL else None
+        self._apply(lambda: self.backend.set_fan_mode(channel, mode, manual_percent=percent))
 
-    def cpumanual(self, level: int):
-        value = level * 10
-        logger.debug("CPU manual fan level set to %d", value)
-        ec_write(self.profile.cpu_manual_speed_control, value)
+    def _set_manual(self, channel: FanChannel, level: int):
+        self._apply(lambda: self.backend.set_manual_speed(channel, level * 10))
 
-    def gpumanual(self, level: int):
-        value = level * 10
-        logger.debug("GPU manual fan level set to %d", value)
-        ec_write(self.profile.gpu_manual_speed_control, value)
+    def _set_global(self, mode: FanMode):
+        def apply():
+            # Each channel is verified separately; on failure stop and refresh
+            # both. EC cannot provide an atomic two-channel hardware commit.
+            self.backend.set_fan_mode(FanChannel.CPU, mode)
+            self.backend.set_fan_mode(FanChannel.GPU, mode)
 
-    def cpusetmanual(self):
-        if ec_write(self.profile.cpu_fan_mode_control, self.profile.cpu_manual_mode):
-            self.cpuFanMode = PFS.Manual
+        self._apply(apply)
 
-    def gpusetmanual(self):
-        if ec_write(self.profile.gpu_fan_mode_control, self.profile.gpu_manual_mode):
-            self.gpuFanMode = PFS.Manual
+    def toggle_cb(self, enabled: bool):
+        def apply():
+            self.backend.set_coolboost(enabled)
+            save_coolboost_state(enabled, STATE_FILE)
 
-
-def persist_coolboost_state(enabled: bool):
-    try:
-        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-        with open(STATE_FILE, "w", encoding="utf-8") as file_handle:
-            json.dump({"coolboost_enabled": bool(enabled)}, file_handle)
-    except OSError as exc:
-        logger.warning("Failed to persist CoolBoost state: %s", exc)
+        self._apply(apply)
