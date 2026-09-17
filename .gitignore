@@ -19,3 +19,4 @@ pkg/
 predator-sense/
 *.pkg.tar.zst
 *.pkg.tar.zst.sig
+predator-diagnostics-*.txt
