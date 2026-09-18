@@ -50,12 +50,15 @@ def stylesheet():
     QFrame#line {{ background: {t.border}; border: none; }}
     QRadioButton {{ background: {t.raised}; border: 1px solid {t.border}; padding: 9px 13px;
                      color: {t.muted}; spacing: 0; }}
-    QRadioButton::indicator {{ width: 0; height: 0; }}
     QRadioButton:hover {{ color: {t.text}; border-color: {t.muted}; }}
     QRadioButton:checked {{ background: {t.accent_dark}; color: {t.text}; border-color: {t.accent}; }}
     QRadioButton:focus, QPushButton:focus, QCheckBox:focus {{ outline: 2px solid {t.accent_hover}; }}
     QRadioButton:disabled {{ color: {t.disabled}; border-color: {t.border}; background: {t.surface}; }}
     QRadioButton:checked:disabled {{ border-color: {t.muted}; background: {t.raised}; }}
+    QRadioButton::indicator {{ width: 0; height: 0; border: none; background: none; image: none; }}
+    QRadioButton::indicator:checked, QRadioButton::indicator:unchecked {{
+        width: 0; height: 0; border: none; background: none; image: none;
+    }}
     QPushButton {{ background: {t.raised}; border: 1px solid {t.border}; color: {t.text}; padding: 8px 14px; }}
     QPushButton:hover {{ border-color: {t.muted}; }}
     QPushButton:pressed {{ background: {t.accent_dark}; }}

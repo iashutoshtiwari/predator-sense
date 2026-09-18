@@ -14,7 +14,7 @@ optdepends=('python-nvidia-ml-py: NVIDIA GPU temperature via NVML')
 backup=('etc/modprobe.d/predator-sense.conf')
 install=predator-sense.install
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('6777a40389413cab83835c6fa281b0ee9fae5baf49560a21288ae6331069e790')
+sha256sums=('85dc9e5eed540daef47a2d2a7b42ebea9acc0090d07db5cd75817634adb87c85')
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
