@@ -33,6 +33,7 @@ def main():
         repo_root / "packaging" / "predator-sense.desktop",
         repo_root / "packaging" / "predator-sensed.service",
         repo_root / "src" / "predator_sense" / "install_check.py",
+        repo_root / "src" / "predator_sense" / "diagnostics.py",
         repo_root / "packaging" / "io.github.iashutoshtiwari.PredatorSense.service",
     ]
     missing = [str(path) for path in required if not path.exists()]

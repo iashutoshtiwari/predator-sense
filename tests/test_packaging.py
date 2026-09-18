@@ -37,6 +37,8 @@ class PackagingTests(unittest.TestCase):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
         self.assertEqual(project["scripts"]["predator-sense"], "predator_sense.main:main")
         self.assertEqual(project["scripts"]["predator-sensed"], "predator_sense.daemon_main:main")
+        self.assertEqual(project["scripts"]["predator-sense-check"], "predator_sense.install_check:main")
+        self.assertEqual(project["scripts"]["predator-sense-diagnostics"], "predator_sense.diagnostics:main")
         for path in ("background_service.py", "packaging/predator-sense-root", "packaging/predator-sense.service"):
             self.assertFalse((ROOT / path).exists())
         self.assertIn("disable --now predator-sense.service", (ROOT / "predator-sense.install").read_text())

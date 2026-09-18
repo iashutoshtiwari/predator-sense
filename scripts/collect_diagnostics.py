@@ -227,11 +227,9 @@ def main() -> int:
     report: list[str] = []
     report.append("# Predator Sense Diagnostics Report")
     report.append(f"generated_at: {dt.datetime.now().isoformat()}")
-    report.append(f"cwd: {pathlib.Path.cwd()}")
     report.append(f"python: {sys.version.splitlines()[0]}")
-    report.append(f"uid: {os.getuid()} euid: {os.geteuid()}")
 
-    append_command(report, "Kernel", ["uname", "-a"])
+    append_command(report, "Kernel", ["uname", "-srm"])
     append_file(report, "OS Release", pathlib.Path("/etc/os-release"))
     append_file(report, "DMI Product Name", pathlib.Path("/sys/class/dmi/id/product_name"))
     append_file(report, "DMI BIOS Version", pathlib.Path("/sys/class/dmi/id/bios_version"))
@@ -245,16 +243,6 @@ def main() -> int:
     append_command(report, "EC I/O path details", ["ls", "-l", str(EC_IO_PATH)])
 
     append_command(report, "nvidia-smi", ["nvidia-smi"])
-    append_command(
-        report,
-        "nvidia-settings clock/coolbits query",
-        ["sh", "-lc", "nvidia-settings -q all | grep -Ei 'clock|offset|coolbits|fan' || true"],
-    )
-    if shutil.which("nvidia-settings") is None:
-        write_section(report, "nvidia-settings hint")
-        report.append("nvidia-settings was not found in PATH.")
-        report.append("Install package: nvidia-settings")
-        report.append("Overclock mode detection requires this tool.")
     append_command(report, "sensors", ["sensors"])
 
     append_hwmon_inventory(report)

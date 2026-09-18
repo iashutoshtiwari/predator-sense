@@ -23,6 +23,7 @@ def check(path):
             "predator-sense": "predator_sense.main:main",
             "predator-sensed": "predator_sense.daemon_main:main",
             "predator-sense-check": "predator_sense.install_check:main",
+            "predator-sense-diagnostics": "predator_sense.diagnostics:main",
         }
         metadata = wheel.read(entry.replace("entry_points.txt", "METADATA")).decode()
         assert "License-Expression: GPL-3.0-only" in metadata

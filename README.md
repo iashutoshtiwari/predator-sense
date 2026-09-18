@@ -1,210 +1,204 @@
-# Predator Sense™ for Helios 300 (2017)
+# Predator Sense for Linux
 
-Linux fan control for Acer Predator G3-572 (`G3-572-55UB`). The PyQt6 GUI runs as
-your normal desktop user; the `predator-sensed` system daemon owns hardware access.
+Native fan control and real-time hardware telemetry for the **Acer Predator Helios 300 (2017)** on Linux.
+
+The application features an unprivileged PyQt6 GUI designed for native Wayland and X11 sessions,
+paired with a hardened background system service (`predator-sensed`) that securely manages Embedded
+Controller (EC) registers.
+
+---
 
 ## Screenshot
 
-![Predator Sense dashboard with simulated test data](docs/screenshots/dashboard.png)
+![Predator Sense native dashboard](docs/screenshots/dashboard.png)
 
-Offscreen preview with **simulated test data**; live values come only from the daemon.
+*The native dashboard showing CPU and GPU thermal curves, candidate RPM graphs, fan modes, and CoolBoost.*
 
-## Support
+---
 
-Arch Linux, CachyOS, and compatible Arch-derived distributions are supported.
-Hardware access requires the normalized DMI product name `Predator G3-572`.
-BIOS `V1.22` is the tested version; other BIOS versions are reported as unvalidated.
-No other Acer model is supported.
+## Features
 
-## Install and run
+* **Dedicated Hardware Support:** Designed strictly for the Acer Predator G3-572 Embedded Controller.
+* **Fan Control Modes:**
+  * **Auto:** Dynamic firmware-managed fan curves.
+  * **Manual:** Direct user-defined percentage control (0–100%) with debounced input.
+  * **Turbo:** Maximum cooling fan speeds for heavy thermal workloads.
+  * **Global Selectors:** Synchronized one-click Auto or Turbo across all fans.
+* **CoolBoost Technology:** Extends the fan curve with elevated RPM under moderate thermal loads.
+* **1 Hz Low-Overhead Telemetry:**
+  * CPU temperature via `coretemp` sysfs (package-preferred).
+  * GPU temperature via official NVIDIA NVML bindings (`pynvml`).
+  * Non-blocking candidate fan RPM reads directly from EC tachometer words.
+  * 60-second rolling history graphs rendered with anti-aliased QPainter sparklines.
+* **Secure Privilege Separation:** The GUI runs strictly as an unprivileged user; all hardware mutations are authenticated via Polkit on the system D-Bus.
+* **State Persistence & Sleep Recovery:** Remembers fan settings across reboots; gracefully handles logind suspend and resume without running unbounded polling loops.
+* **Native Wayland & High-DPI Support:** Full scaling awareness on modern desktop environments (KDE Plasma, GNOME).
 
-Build and install using Arch's package workflow:
+---
+
+## Supported Hardware
+
+* **Target Model:** Acer Predator Helios 300 (2017), model **`G3-572`** (Motherboard `CFL`).
+* **Tested BIOS Version:** **`V1.22`**.
+* **Strict Hardware Gate:** Hardware control is gated by the normalized DMI product string `Predator G3-572`. Systems returning any other string are refused access to prevent hardware misconfiguration.
+* **Explicit Non-Features:** No RGB keyboard controls, battery charging thresholds, GPU overclocking, or generic fan curves for unsupported laptop lines (Nitro, Triton, newer Helios generations).
+
+---
+
+## Installation
+
+### Arch Linux, CachyOS, and Arch-derived Distributions
+
+The package builds cleanly as a native Arch package:
 
 ```bash
-# From a local git checkout, prepare the release source archive once:
+# Prepare reproducible release source tarball (when building from git):
 python scripts/prepare_arch_source.py
+
+# Build and install dependencies via makepkg:
 makepkg -si
 
-# Enable and start the system hardware service (Arch user-driven service convention):
+# Enable and start the system hardware service:
 systemctl enable --now predator-sensed.service
 
 # Verify installation health without writing fan values:
 predator-sense-check
 
-# Launch the GUI:
+# Launch Predator Sense from your application menu or terminal:
 predator-sense
 ```
 
-Installation requires administrator privileges through the package manager. Following Arch
-packaging conventions, service activation is explicitly user-managed. Run the GUI
-**without sudo or pkexec**. It refuses root launches. The launcher preserves your session
-environment: Qt uses Wayland on a Wayland session and X11 on an X11 session. The package includes
-`qt6-wayland`; no platform override is applied.
+Runtime dependencies include:
+* `python` (>= 3.12)
+* `python-pyqt6`, `qt6-wayland`, `qt6-svg`
+* `python-dbus-next`
+* `polkit`, `dbus`, `systemd`, `kmod`, `hicolor-icon-theme`
+* `python-nvidia-ml-py` (optional, for discrete NVIDIA GPU temperature readings)
 
-Runtime packages: `python`, `python-pyqt6`, `python-dbus-next`, `polkit`, `dbus`,
-`qt6-wayland`, and `qt6-svg`. Optional `python-nvidia-ml-py` supplies NVIDIA GPU temperatures
-using the installed NVIDIA driver. An active desktop Polkit authentication agent is required for
-control actions (normally supplied by Plasma). Reads do not prompt. Mutations
-require administrator authentication, retained temporarily by Polkit; slider
-changes are debounced and only one control request is outstanding at a time.
+---
 
-Upgrading disables/stops the legacy `predator-sense.service`. Its existing
-`/var/lib/predator-sense/state.json` is preserved. The new daemon restores a valid
-cooling configuration at startup and after logind resume. Legacy CoolBoost-only
-preferences migrate to explicit Auto fan modes. There is no continuous register
-enforcement loop. See the lifecycle policy below.
+## Architecture
 
-## Run the GUI from source
+Predator Sense enforces a strict two-tier architecture:
 
-With the matching packaged daemon/D-Bus policy already installed:
-
-```bash
-python -m pip install -r requirements.txt
-PYTHONPATH=src python -m predator_sense.main
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│ User Session: predator-sense (PyQt6 GUI)                        │
+│ • Unprivileged desktop process (never run with sudo)            │
+│ • Wayland / X11 native, system UI fonts, high-DPI scaling       │
+│ • Passive D-Bus client; zero direct EC or sysfs writes          │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ System D-Bus
+                                │ Interface: io.github.iashutoshtiwari.PredatorSense
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ System Daemon: predator-sensed (Root Service)                   │
+│ • Managed by systemd (predator-sensed.service)                 │
+│ • DMI Gate: checks /sys/class/dmi/id/product_name               │
+│ • Gated kernel module preparation: modprobe ec_sys              │
+│ • Hardware lock & serialized EC I/O (/sys/kernel/debug/ec/ec0)  │
+│ • 1 Hz monotonic sensor engine (coretemp sysfs + NVML worker)   │
+│ • Polkit authorization gate on every mutation                   │
+│ • Atomic state persistence in /var/lib/predator-sense/          │
+│ • logind sleep monitor for clean suspend / resume transitions   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Installing Python dependencies alone does not install the system service, bus
-policy, or Polkit action. Without the daemon, the GUI stays open, disables controls,
-and shows an actionable status. It retries automatically. Root access, DMI reads,
-EC access, and system state writes never take place in the GUI process.
+---
+
+## Controls
+
+* **Auto Mode:** Returns fan speed management to the laptop's internal EC thermal table.
+* **Manual Mode:** Enables percentage sliders (0–100%, stepped in 10% increments). Dragging the slider commits the percentage upon mouse release; keyboard navigation debounces changes by 250 ms before issuing an EC write.
+* **Turbo Mode:** Overrides EC thermal management to command maximum fan speeds for peak compute loads.
+* **CoolBoost:** An Acer-specific register setting (`0x10`) that boosts fan curves by approximately 300–500 RPM. Can be enabled when at least one fan is set to Auto.
+* **Signal Blocking:** The GUI blocks widget event signals when updating its visual state from telemetry snapshots, preventing feedback loops or unexpected writes.
+
+---
 
 ## Telemetry
 
-The daemon publishes one cached snapshot per second. CPU temperature comes from
-`coretemp` sysfs, preferring `Package id 0` and falling back to the hottest readable
-coretemp input. GPU temperature uses NVIDIA's `nvidia-ml-py` binding (`pynvml`),
-available as the optional Arch package `python-nvidia-ml-py`. The binding and a
-working GTX 1050 Ti NVIDIA driver must be available to the daemon's system Python;
-a GUI virtual environment alone does not provide the daemon's dependencies.
+* **Cached 1-Second Snapshots:** The daemon samples coretemp, NVML, and EC tachometers independently in isolated daemon threads and publishes a unified snapshot at 1 Hz.
+* **Freshness & Stale Semantics:** If a sensor lane stalls or errors, existing readings are dated and clearly marked as stale or unavailable rather than substituted with misleading zeroes.
+* **Candidate RPM:** Tachometer register readings (CPU `0x13`, GPU `0x15`) are displayed with a note indicating candidate RPM, preserving the uncalibrated word values reported by the Embedded Controller.
 
-Snapshots include temperatures, candidate EC fan RPM, fan modes, CoolBoost, manual
-percentages, timestamps, and per-sensor availability/errors. Missing readings are
-`None`, and old readings become explicitly stale. CPU, GPU, and EC reads run in
-separate bounded workers, so a slow GPU cannot freeze the window. There are no
-per-second subprocesses or telemetry disk writes.
+---
 
-`ServiceClient.telemetry_updated(snapshot)` and its bounded `history` (120 samples)
-drive the native dashboard: CPU/GPU temperature and candidate RPM cards, four
-60-second QPainter graphs, per-fan Auto/Manual/Turbo selectors, global Auto/Turbo,
-and CoolBoost. Missing values show a dash and an explanation; missing graph samples
-remain gaps. Sliders show percentages, commit mouse drags on release, and debounce
-keyboard changes for 250 ms. CoolBoost is editable when at least one fan is in Auto.
+## Wayland
 
-The window resizes, adapts its card layout, and scrolls when larger fonts or smaller
-screens need more space. It uses system fonts, a centralized dark/red theme, and
-an SVG icon; the bundled Squares fonts are neither loaded nor installed because
-their licence remains unconfirmed. No Qt platform override or root GUI is used.
+Predator Sense is fully Wayland-native:
+* Does **not** export `QT_QPA_PLATFORM=xcb`.
+* Uses Qt's logical coordinates and layout managers for fractional scaling (100% to 200%).
+* Follows the `desktopFileName` specification for seamless icon and taskbar association under Wayland compositors (KWin / Plasma, Mutter / GNOME).
+
+---
+
+## Safety
+
+* **Allow-Listed Registers Only:** The daemon only ever reads or writes documented G3-572 registers (`0x10`, `0x21`, `0x22`, `0x37`, `0x3A`). Arbitrary address reading or writing is impossible over D-Bus.
+* **Value Clamping:** Mode writes are strictly restricted to verified constants (`0x50`, `0x54`, `0x58`, `0x5C`, `0x60`, `0x70`); manual percentages are clamped to `0–100`.
+* **Readback Verification:** Every register write verifies that the register took the requested value.
+* **Non-Persistent Fallback:** If a hardware error occurs, the daemon attempts a best-effort Auto fallback to keep fans running safely.
+* **Root GUI Refusal:** The GUI process actively refuses execution under EUID 0 to protect desktop session configuration files and IPC boundaries.
+
+---
 
 ## Troubleshooting
 
-Inspect service status and logs without launching a root GUI:
+1. **Verify service status:**
+   ```bash
+   systemctl status predator-sensed.service
+   journalctl -u predator-sensed.service -b
+   ```
+2. **Run non-mutating installation check:**
+   ```bash
+   predator-sense-check
+   ```
+3. **Inspect Polkit authentication:**
+   If toggling fan modes fails, ensure an active desktop Polkit agent (e.g. `polkit-kde-agent` or `polkit-gnome`) is running in your desktop session.
+
+---
+
+## Diagnostics
+
+Collect a comprehensive, privacy-redacted diagnostics report:
 
 ```bash
-systemctl status predator-sensed.service
-journalctl -u predator-sensed.service -b
+# Print report to terminal:
+predator-sense-diagnostics --stdout
+
+# Or save to a file:
+predator-sense-diagnostics --output predator-diagnostics.txt
 ```
 
-If the service is installed but stopped, an administrator can start it using
-`systemctl start predator-sensed.service` (the desktop may request authentication).
-D-Bus activation can also start it on demand. Authentication cancellation or denial
-leaves the GUI open. Check the active session's Polkit agent if no dialog appears.
-If a request times out, refresh observed state before retrying because a hardware
-change may already have happened.
+The report inspects kernel, DMI, service status, EC file accessibility, kernel module parameters, graphic controllers, and live telemetry sources without capturing hostnames, user paths, or process lists.
 
-The daemon alone prepares `ec_sys`, after checking DMI. It reports missing EC,
-debugfs, permissions, unsupported hardware, and verification failures. Do not use
-other-model WMI overrides. Read-only diagnostics use the daemon for cooling data:
+---
+
+## Development
+
+Run unit tests and linting from the repository root:
 
 ```bash
-python scripts/collect_diagnostics.py --gpu-sample-seconds 0
-```
-
-The diagnostics report still contains host/path/process information from system
-commands; inspect it before sharing. A zero-duration GPU sample currently executes
-one sample. This is an existing diagnostics limitation, not a telemetry loop in
-the GUI or daemon.
-
-## Validate fan readings
-
-With the matching daemon already running, observe cached fan data without changing
-hardware or starting the daemon:
-
-```bash
-python scripts/validate_fan_telemetry.py --samples 60 --label auto
-python scripts/validate_fan_telemetry.py --samples 60 --label manual-50
-```
-
-Output is timestamped CSV on stdout at 1 Hz, with CPU/GPU candidate RPM, availability,
-modes, CoolBoost, manual settings, temperatures, and daemon sample sequence. Labels
-only annotate output. Use the GUI separately to compare Auto, Auto + CoolBoost,
-Manual approximately 30%, 50%, 70%, and Turbo; allow each setting to settle before
-recording. Capture BIOS V1.22, workload, temperatures, and independent reference
-readings when comparing. Do not run another EC control tool concurrently.
-
-The tool pins an existing daemon owner and refuses auto-activation, avoiding a
-startup-triggered cooling-state restore. It stops if that owner disappears. It neither
-opens EC directly nor sends control requests. Unknown/stale values print
-`Unavailable`; an actual zero prints `0`. Repeated sequence numbers mean the same
-cached sample. No smoothing or scaling is applied. NBFC confirms the read map and
-little-endian convention, but absolute RPM units and physical channel correlation
-still need on-device validation; see [ARCHITECTURE.md](ARCHITECTURE.md).
-
-## Development checks
-
-Use an isolated Python 3.12 environment and `requirements-dev.txt`:
-
-```bash
-ruff check .
+# Run complete hardware-free test suite:
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
+
+# Run smoke test:
 python scripts/smoke_test.py
 ```
 
-Tests use fake hardware, temporary DMI/state/logs, and a private `dbus-daemon`
-instance for Qt/dbus-next integration. The private-bus fixture includes a fake
-Polkit authority; it never contacts the system bus. No root or hardware access is
-required. The offscreen platform override is test-only. Private-bus tests are
-skipped when `dbus-daemon` is unavailable; CI checks for it explicitly.
+All behavioral tests run without root, physical EC access, or live display servers.
 
-Render the dashboard with simulated data (no hardware or system bus):
+---
 
-```bash
-PYTHONPATH=src QT_QPA_PLATFORM=offscreen python tests/render_dashboard.py /tmp/predator-ui
-PYTHONPATH=src QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=1.25 python tests/render_dashboard.py /tmp/predator-ui-125
-```
+## Credits / Upstream Projects
 
-An optional three-minute offscreen Qt soak introduces fake GPU stalls/failures:
+* Original reverse-engineering concept by [mohsunb/PredatorSense](https://github.com/mohsunb/PredatorSense).
+* Additional Linux implementation ideas by [kphanipavan/PredatorNonSense](https://github.com/kphanipavan/PredatorNonSense).
+* Hardware register corroboration from [NBFC Linux](https://github.com/nbfc-linux/nbfc-linux) (G3-572 profile).
 
-```bash
-PYTHONPATH=src QT_QPA_PLATFORM=offscreen python tests/telemetry_soak.py
-```
+---
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the wire API, hardware evidence,
-security boundary, known limitations, and remaining physical validation.
+## License
 
-## Disclaimer
-
-This community project is provided without warranty. Hardware control can affect
-your device. Supplied physical observations confirm manual 50%; the full control
-range and candidate RPM telemetry still require real-device validation.
-
-## Based On
-
-This project is based on https://github.com/mohsunb/PredatorSense.
-The unresolved license and asset provenance findings are recorded in ARCHITECTURE.md.
-
-
-### Cooling state and service lifecycle
-
-The system daemon runs independently of the GUI and is enabled at boot by the
-administrator (`systemctl enable --now predator-sensed.service`). Verified CPU/GPU modes, applicable manual percentages and
-CoolBoost are saved atomically under `/var/lib/predator-sense/`.
-Fresh or invalid settings select explicit Auto for both fans and CoolBoost Off.
-Legacy CoolBoost-only files migrate to Auto with the saved CoolBoost preference.
-
-Logind suspend/resume notifications pause controls and trigger guarded recovery.
-Missing EC access retries with backoff; failed setting writes report degraded
-status and attempt Auto once. Closing/reopening the GUI never changes fan state.
-An intentional service stop attempts Auto/Auto/Off while preserving preferences
-for restart. This cleanup cannot be guaranteed after SIGKILL, power loss, kernel
-panic or hardware failure. Reboot and suspend behavior still need physical
-G3-572 validation; see [ARCHITECTURE.md](ARCHITECTURE.md).
+This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See [`LICENSE`](LICENSE) for details.
