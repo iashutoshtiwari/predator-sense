@@ -52,3 +52,18 @@ The following operations were directly tested and verified on physical Acer Pred
 - **Extreme Manual Boundaries:** Values below 30% or above 90% have not been validated across varied thermal loads.
 - **Immediate Write Readback Latency:** EC controllers update registers asynchronously; atomic transactions must lock access during multi-register mutations.
 - **Suspend/Resume Reset:** Hardware behavior across S3 sleep, modern standby (s2idle), and ACPI power transitions. The daemon re-applies desired state upon resume from logind.
+
+
+## Maintainer evidence review
+
+The existing statements above about extensive 70% and 80% manual testing are
+preserved pending maintainer confirmation of their measurement records. The
+README/checklist's 300–500 RPM CoolBoost difference likewise needs maintainer
+review. The supplied reference contract explicitly records 50% (`0x32`). Software
+fixtures at other percentages verify encoding and control flow, not physical fan
+response. These review notes neither withdraw nor independently validate the
+existing physical claims.
+
+Unknown CPU/GPU mode bytes block automatic restoration and fallback writes until
+an explicit authorized fan-mode action establishes known state. This is a
+software safety rule; it does not expand the verified hardware map.

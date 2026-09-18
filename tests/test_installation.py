@@ -90,11 +90,12 @@ class SourceArchiveTests(unittest.TestCase):
             (tree / "src/predator_sense/__init__.py").write_text("")
             (tree / "packaging").mkdir()
             (tree / "src/predator_sense/uncertain.ttf").write_text("never redistribute")
+            (tree / "src/predator_sense/assets/predator.png").write_bytes(b"reference-only PNG")
             with redirect_stdout(io.StringIO()):
                 archive = module.prepare(tree)
                 first = archive.read_bytes()
                 module.prepare(tree)
             self.assertEqual(first, archive.read_bytes())
             with tarfile.open(archive) as tar:
-                self.assertFalse(any(name.endswith(".ttf") for name in tar.getnames()))
+                self.assertFalse(any(name.endswith((".ttf", ".png")) for name in tar.getnames()))
         self.assertFalse(asyncio.iscoroutinefunction(module.prepare))

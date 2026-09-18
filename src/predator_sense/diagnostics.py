@@ -11,9 +11,9 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 import platform
-import shutil
 import subprocess
 import sys
+import time
 
 from dbus_next import BusType, Message, MessageFlag, MessageType
 from dbus_next.aio import MessageBus
@@ -30,7 +30,7 @@ from predator_sense.core.profiles import (
     WORD_READ_REGISTERS,
     FanChannel,
 )
-from predator_sense.service.protocol import BUS_NAME, INTERFACE, OBJECT_PATH
+from predator_sense.service.protocol import BUS_NAME, INTERFACE, METHODS, OBJECT_PATH
 from predator_sense.service.telemetry_model import TelemetrySnapshot
 
 EC_IO_PATH = Path(EC_IO_FILE)
@@ -52,6 +52,8 @@ def run_cmd(cmd: list[str], timeout: int = 8) -> tuple[int, str]:
         return 127, f"command not found: {cmd[0]}"
     except subprocess.TimeoutExpired:
         return 124, f"command timed out after {timeout}s"
+    except OSError as exc:
+        return 126, f"unavailable: {exc}"
 
 
 def read_file_safe(path: Path) -> str:
@@ -63,8 +65,6 @@ def read_file_safe(path: Path) -> str:
 
 def get_os_release() -> str:
     path = Path("/etc/os-release")
-    if not path.exists():
-        return "Unknown Linux"
     lines = read_file_safe(path).splitlines()
     data = {}
     for line in lines:
@@ -76,12 +76,14 @@ def get_os_release() -> str:
 
 async def query_daemon_telemetry() -> tuple[dict[int, str], TelemetrySnapshot | None, str | None]:
     """Query the system daemon over D-Bus with NO_AUTOSTART."""
-    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    bus = None
     registers: dict[int, str] = {}
     snapshot: TelemetrySnapshot | None = None
     error: str | None = None
 
     try:
+        bus = MessageBus(bus_type=BusType.SYSTEM)
+        await asyncio.wait_for(bus.connect(), 4)
         # Check owner first without auto-activating
         owner_msg = Message(
             destination="org.freedesktop.DBus",
@@ -96,9 +98,14 @@ async def query_daemon_telemetry() -> tuple[dict[int, str], TelemetrySnapshot | 
         if owner_reply.message_type == MessageType.ERROR:
             return registers, None, "Daemon not running (no D-Bus owner)"
 
+        if (owner_reply.signature != "s" or len(owner_reply.body) != 1
+                or not isinstance(owner_reply.body[0], str) or not owner_reply.body[0].startswith(":")):
+            raise ValueError("Malformed daemon owner reply")
+        owner = owner_reply.body[0]
+
         # Read snapshot
         snap_msg = Message(
-            destination=BUS_NAME,
+            destination=owner,
             path=OBJECT_PATH,
             interface=INTERFACE,
             member="GetTelemetrySnapshot",
@@ -106,7 +113,9 @@ async def query_daemon_telemetry() -> tuple[dict[int, str], TelemetrySnapshot | 
         )
         snap_reply = await asyncio.wait_for(bus.call(snap_msg), 4)
         if snap_reply.message_type == MessageType.METHOD_RETURN and snap_reply.signature == "s":
-            snapshot = TelemetrySnapshot.from_json(snap_reply.body[0])
+            snapshot = TelemetrySnapshot.from_json(snap_reply.body[0]).aged(time.monotonic())
+        else:
+            error = "Daemon telemetry unavailable or malformed"
 
         # Read registers via status methods
         for method, reg_list in (
@@ -116,7 +125,7 @@ async def query_daemon_telemetry() -> tuple[dict[int, str], TelemetrySnapshot | 
             ("GetFanSpeeds", [RPM_REGISTERS[FanChannel.CPU], RPM_REGISTERS[FanChannel.GPU]]),
         ):
             msg = Message(
-                destination=BUS_NAME,
+                destination=owner,
                 path=OBJECT_PATH,
                 interface=INTERFACE,
                 member=method,
@@ -126,15 +135,22 @@ async def query_daemon_telemetry() -> tuple[dict[int, str], TelemetrySnapshot | 
             if reply.message_type == MessageType.ERROR:
                 for r in reg_list:
                     registers[r] = f"unavailable [{reply.error_name}]"
+            elif reply.signature != METHODS[method][1] or len(reply.body) != len(reg_list):
+                for r in reg_list:
+                    registers[r] = "unavailable [malformed reply]"
             else:
                 for r, val in zip(reg_list, reply.body):
                     registers[r] = "unavailable" if val == -1 else str(val)
 
     except Exception as exc:
-        error = str(exc)
+        error = f"unavailable: {type(exc).__name__}: {exc}"
     finally:
-        bus.disconnect()
-        await bus.wait_for_disconnect()
+        if bus is not None:
+            try:
+                bus.disconnect()
+                await asyncio.wait_for(bus.wait_for_disconnect(), 4)
+            except Exception:
+                pass  # Preserve the diagnostic result if connection/cleanup failed.
 
     return registers, snapshot, error
 
@@ -159,7 +175,10 @@ def collect_diagnostics_report() -> list[str]:
     section("Service Status")
     for check in ("is-installed", "is-active", "is-enabled"):
         if check == "is-installed":
-            installed = Path("/usr/lib/systemd/system/predator-sensed.service").is_file()
+            try:
+                installed = Path("/usr/lib/systemd/system/predator-sensed.service").is_file()
+            except OSError as exc:
+                installed = f"unavailable: {exc}"
             lines.append(f"service_installed: {installed}")
         else:
             code, out = run_cmd(["systemctl", check, "predator-sensed.service"])
@@ -167,12 +186,11 @@ def collect_diagnostics_report() -> list[str]:
 
     section("EC and Kernel Modules")
     lines.append(f"ec_io_path: {EC_IO_PATH}")
-    lines.append(f"ec_io_exists: {EC_IO_PATH.exists()}")
     try:
-        with open(EC_IO_PATH, "rb") as _:
-            lines.append("ec_io_accessible: true")
+        EC_IO_PATH.stat()
+        lines.append("ec_io_exists: true (access verified through daemon telemetry below)")
     except OSError as exc:
-        lines.append(f"ec_io_accessible: false ({exc})")
+        lines.append(f"ec_io_exists: unavailable ({exc})")
 
     param_path = Path(EC_MODULE_PATH) / "parameters" / "write_support"
     lines.append(f"ec_sys_write_support: {read_file_safe(param_path)}")
@@ -195,7 +213,8 @@ def collect_diagnostics_report() -> list[str]:
 
         for field in ("cpu_temp_c", "gpu_temp_c", "cpu_fan_rpm", "gpu_fan_rpm"):
             r = snapshot.reading(field)
-            lines.append(f"sensor_{field}: value={snapshot.value(field)}; status={r.status.value}; source={r.source}; error={r.error or 'none'}")
+            lines.append(f"sensor_{field}: value={snapshot.value(field)}; status={r.status.value}; "
+                         f"source={r.source}; error={r.error or 'none'}")
     else:
         lines.append("daemon_query: No snapshot received")
 

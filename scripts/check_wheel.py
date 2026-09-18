@@ -16,7 +16,7 @@ def check(path):
         assert "predator_sense/assets/fonts/Orbitron-Bold.ttf" in names
         assert "predator_sense/assets/fonts/JetBrainsMono-Regular.ttf" in names
         assert "predator_sense/assets/fonts/JetBrainsMono-Bold.ttf" in names
-        assert not any(name.endswith((".otf", ".ico")) for name in names)
+        assert not any(name.endswith((".otf", ".ico", ".png")) for name in names)
         root = Path(__file__).resolve().parent.parent / "src"
         expected = {str(p.relative_to(root)) for p in (root / "predator_sense").rglob("*.py")}
         assert expected <= names, f"Missing modules: {expected - names}"

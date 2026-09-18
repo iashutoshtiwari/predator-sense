@@ -11,6 +11,7 @@ import time
 from PyQt6 import QtCore
 
 from test_dbus_integration import PrivateBusTests
+from dashboard_fixture import FakeModelDiscovery
 from predator_sense.ui.main_window import MainWindow
 from predator_sense.ui.theme import apply_theme
 
@@ -23,7 +24,7 @@ def main():
     window = None
     try:
         fixture = case.start_fixture(stress=True)
-        window = MainWindow(case.client)
+        window = MainWindow(case.client, model_discovery=FakeModelDiscovery())
         window.show()
         updates, heartbeats, history_sizes, workers, memory = [], [], [], [], []
         states = Counter()

@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6 import QtCore, QtWidgets
 
 from dashboard_fixture import DashboardTransport, missing, samples
+from dashboard_fixture import FakeModelDiscovery
 from predator_sense.service.client import ServiceClient
 from predator_sense.ui.instruments import label
 from predator_sense.ui.main_window import MainWindow
@@ -35,7 +36,7 @@ def main():
             transport.error = "org.freedesktop.DBus.Error.ServiceUnknown"
         client = ServiceClient(transport=transport)
         client.history.extend(history)
-        window = MainWindow(client)
+        window = MainWindow(client, model_discovery=FakeModelDiscovery())
         watermark = label("SIMULATED TEST DATA · OFFSCREEN UI VALIDATION", role="muted", size=8)
         watermark.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         window.layout().addWidget(watermark)

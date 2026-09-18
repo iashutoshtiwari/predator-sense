@@ -4,13 +4,12 @@
 
 Predator Sense is a Python/PyQt6 desktop fan-control app for the Acer Predator
 Helios 300 (2017), model G3-572-55UB. Arch Linux, CachyOS, and compatible Arch-derived distributions are supported;
-CI runs static and hardware-free behavioral checks on Ubuntu with Python 3.12. This is a source-based desktop
-app, not a web app or an installable Python package. Runtime dependencies include
+CI runs static and hardware-free behavioral checks on Ubuntu with Python 3.12. This is a setuptools-packaged native desktop
+app with console entry points, not a web app. Runtime dependencies include
 PyQt6, Python, dbus-next, D-Bus, polkit, Qt Wayland, and Qt SVG; see `requirements.txt` and `PKGBUILD`.
 
 Features currently implemented: CPU/GPU Auto, Manual, and Turbo fan modes,
-global Auto/Turbo controls, persistent CoolBoost, and daemon-side 1 Hz telemetry. Diagnostics can inspect
-NVIDIA tools. The native dashboard shows CPU/GPU temperatures, candidate RPM,
+global Auto/Turbo controls, persistent CoolBoost, and daemon-side 1 Hz telemetry. Diagnostics report PCI graphics identities and daemon telemetry. The native dashboard shows CPU/GPU temperatures, candidate RPM,
 four 60-second graphs, modes, CoolBoost, and compact hardware status. GPU
 overclocking is not implemented.
 
@@ -54,7 +53,7 @@ unrelated local work.
 
 - EC I/O is `/sys/kernel/debug/ec/ec0/io`. The backend never prepares the system
   or escalates privileges. `core.env_checks.ensure_ec_access()` is an explicit
-  daemon startup step that may run `modprobe ec_sys write_support=1` after the DMI gate.
+  daemon startup/resume recovery step that may run `modprobe ec_sys write_support=1` after the DMI gate.
 - Keep hardware constants in `core/profiles.py`. Only normalized product name
   `Predator G3-572` is accepted. Preserve the gate on every backend transaction;
   do not expose a public raw-address writer or add other model support.
@@ -74,7 +73,9 @@ unrelated local work.
   owns production EC access. Diagnostics use D-Bus for EC data too.
 - GUI tests inject a fake client/transport. Backend tests redirect DMI, EC paths,
   state and logging through `tests/support.py`. Offscreen Qt alone is not hardware
-  isolation. Use `PYTHONPATH=src` for repository-root tests.
+  isolation. Inject `FakeModelDiscovery` for windows and mock diagnostics host
+  boundaries. `tests/host_guard.py` blocks real EC/NVML/system-bus and discovery
+  subprocess access. Use `PYTHONPATH=src` for repository-root tests.
 - Telemetry uses one cached `GetTelemetrySnapshot()` call per client poll. Keep
   sampling in the daemon and the timer/history in `ServiceClient`, never widgets.
   CPU/GPU/EC workers each allow one pending read. Preserve monotonic deadlines,
@@ -87,9 +88,13 @@ unrelated local work.
 - Only the daemon writes `/var/lib/predator-sense/state.json`, preserving the
   `coolboost_enabled` boolean key in the versioned cooling-state schema. Restore
   validated modes/manual percentages/CoolBoost after a healthy probe at startup
-  and logind resume. Missing/invalid state selects explicit Auto/Auto/Off.
+  and logind resume. Missing/invalid state selects explicit Auto/Auto/Off only
+  when fan modes are recognized. Unknown modes block all automatic EC writes
+  until explicit authorized fan-mode actions establish known state.
   Stop fallback must not overwrite desired preferences. Recovery health checks
-  back off to 30 seconds; failed writes get one best-effort Auto fallback.
+  back off to 30 seconds, including guarded preparation; unsupported hardware
+  stops retries. Failed writes get one best-effort Auto fallback only when modes
+  are recognized. GUI-triggered D-Bus activation remains allowed.
   See ARCHITECTURE.md for durability, suspend and cleanup limitations.
 - Every D-Bus mutation must check Polkit against the bus-provided unique sender.
   Never accept a caller-supplied identity, arbitrary address, command, or path.
@@ -122,11 +127,13 @@ The existing CI checks are:
 
 ```bash
 ruff check .
-python -m py_compile src/predator_sense/main.py src/predator_sense/frontend.py src/predator_sense/font_config.py src/predator_sense/core/*.py src/predator_sense/ui/*.py src/predator_sense/service/*.py src/predator_sense/daemon_main.py scripts/smoke_test.py scripts/validate_fan_telemetry.py
+python -m compileall -q src scripts
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 python scripts/smoke_test.py
 test -f PKGBUILD
 grep -q '^pkgname=predator-sense' PKGBUILD
+python -m build --wheel --no-isolation
+python scripts/check_wheel.py dist/*.whl
 ```
 
 For shell/packaging edits, syntax-check without executing the hooks:
@@ -150,7 +157,7 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
 
 - Follow the surrounding Python style: four spaces, explicit imports, type hints
   where practical, and the shared logger. Ruff targets Python 3.12, enables `E`
-  and `F`, and limits lines to 120 characters. Only `src/frontend.py` ignores
+  and `F`, and limits lines to 120 characters. Only `src/predator_sense/frontend.py` ignores
   `E501`; avoid unrelated formatting changes.
 - Keep widget presentation in `frontend.py`, controller behavior in
   `ui/main_window.py`, EC access in `core/hardware.py`, and model values in
@@ -163,7 +170,7 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
   uses `clicked` for hardware actions and blocks signals while refreshing observed
   state. Preserve zero-write startup and test global/individual transitions.
 - Use `font_config` helpers for new widgets. Preserve asset lookup for source,
-  installed, and PyInstaller layouts. Check compact layouts, large fonts, and
+  and installed package layouts. Check compact layouts, large fonts, and
   100–200% scaling. `tests/render_dashboard.py` renders explicitly simulated data.
 - Keep subprocess calls bounded, handle missing commands, and use argument lists
   in hardware code. Diagnostics should remain read-only with respect to hardware
@@ -171,15 +178,16 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
 
 ## Packaging and known repository details
 
-- `PKGBUILD` explicitly installs each Python module under
-  `/usr/share/predator-sense`; adding or moving modules requires updating that
-  list. Install the original SVG under app assets and hicolor/scalable/apps; keep
+- `PKGBUILD` builds/installs the setuptools wheel into system site-packages.
+  Package discovery includes Python modules; keep wheel-content checks current.
+  Install the SVG under app assets and hicolor/scalable/apps; keep
   the desktop filename/icon and Qt desktopFileName aligned with `APP_ID`.
 - The desktop launcher executes Python as the normal user. `predator-sensed.service`
   runs the root daemon as Type=dbus. Polkit gates control methods, not GUI launch.
   D-Bus service, object, interface, and action names live in `service/protocol.py`.
 - Upgrade hooks stop/disable legacy `predator-sense.service`, preserve state, and
-  start/restart `predator-sensed.service`. `makepkg -si` has persistent hardware
+  stop existing `predator-sensed.service` code before replacement. Restart is
+  explicit; installation does not automatically enable/start the service. `makepkg -si` has persistent hardware
   effects. For non-installing build validation, use `makepkg -f` as a normal user.
 - Keep systemd hardening compatible with writable debugfs and ec_sys preparation;
   do not add ProtectKernelTunables/ProtectKernelModules blindly. Never execute
@@ -187,6 +195,9 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
 - Regenerate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO` when changing
   package metadata. Do not hand-edit generated package trees or commit archives,
   caches, local environments, or diagnostics reports.
-- Existing licensing metadata conflicts: `LICENSE` contains GPLv3 while
-  `PKGBUILD` and `.SRCINFO` declare MIT. Do not silently resolve this discrepancy
-  as part of an unrelated change.
+- `LICENSE`, `PKGBUILD`, `.SRCINFO` and Python metadata consistently declare
+  GPLv3/GPL-3.0-only. Bundled fonts include SIL OFL 1.1 notices. Asset provenance
+  and inherited notices remain maintainer review items; do not change licensing
+  or branding as unrelated cleanup.
+- The standalone PNG is a reference asset, not runtime package data. The working
+  SVG embeds the branding image and is packaged. Preserve that distinction.

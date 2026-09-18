@@ -156,8 +156,9 @@ class ControlService:
 
 async def run_daemon():
     # Kept here so importing the bus protocol/client cannot import hardware code.
-    from predator_sense.core.env_checks import ensure_ec_access, run_env_checks
+    from predator_sense.core.env_checks import ensure_ec_access, require_supported_identity
     from predator_sense.core.hardware import G3572EcBackend
+    from predator_sense.core.profiles import TESTED_BIOS
     from predator_sense.service.controller import Controller
     from predator_sense.service.lifecycle import SleepMonitor
     from predator_sense.service.sensors import CoretempSensor, NvmlSensor
@@ -172,27 +173,26 @@ async def run_daemon():
         bus.disconnect()
         raise RuntimeError("Another Predator Sense daemon already owns the bus name")
 
-    async def initialize():
-        async with service.lock:
-            try:
-                valid = await asyncio.to_thread(run_env_checks)
-                if valid and await asyncio.to_thread(ensure_ec_access):
-                    await asyncio.to_thread(controller.recover, startup=True)
-                else:
-                    controller.degraded = "Hardware identity or EC preparation failed."
-            except Exception as exc:
-                logger.exception("Initial cooling restoration failed")
-                controller.degraded = f"Saved cooling settings could not be restored: {exc}"
-            finally:
-                controller.starting = False
+    reported_identity = None
 
-    monitor = SleepMonitor(bus, service)
+    def prepare():
+        nonlocal reported_identity
+        identity = require_supported_identity()
+        if identity != reported_identity:
+            logger.info("Hardware: %s; BIOS: %s", identity.product_name, identity.bios_version or "unavailable")
+            reported_identity = identity
+        if not identity.tested_bios:
+            controller.startup_warning = f"This BIOS is unvalidated; tested BIOS is {TESTED_BIOS}."
+        if not ensure_ec_access():
+            raise ServiceError("BackendUnavailable", "EC preparation unavailable; waiting to retry")
+
+    monitor = SleepMonitor(bus, service, prepare=prepare)
     await monitor.start()
+    monitor.events.put_nowait(False)  # Startup and resume use the same bounded recovery loop.
     recovery = asyncio.create_task(monitor.run())
 
     controller.telemetry = TelemetryEngine(CoretempSensor(), NvmlSensor(), controller.sample_ec)
     sampling = asyncio.create_task(controller.telemetry.run())
-    startup = asyncio.create_task(initialize())
     stop = asyncio.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         asyncio.get_running_loop().add_signal_handler(sig, stop.set)
@@ -206,7 +206,6 @@ async def run_daemon():
     sampling_failed = sampling.done() and not sampling.cancelled()
     sampling.cancel()
     await asyncio.gather(sampling, return_exceptions=True)
-    await startup
     for task in list(service.tasks):
         task.cancel()
     await asyncio.gather(*service.tasks, return_exceptions=True)

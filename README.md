@@ -112,6 +112,9 @@ Predator Sense enforces a strict two-tier architecture:
 * **Manual Mode:** Enables percentage sliders (0–100%, stepped in 10% increments). Dragging the slider commits the percentage upon mouse release; keyboard navigation debounces changes by 250 ms before issuing an EC write.
 * **Turbo Mode:** Overrides EC thermal management to command maximum fan speeds for peak compute loads.
 * **CoolBoost:** An Acer-specific register setting (`0x10`) that boosts fan curves by approximately 300–500 RPM. Can be enabled when at least one fan is set to Auto.
+* **Unknown Fan Modes:** Automatic restoration and stop/error fallback leave unrecognized fan modes untouched.
+  Select an explicit fan mode through the authorized controls to establish known state. Recognized modes
+  still restore normally, and opening the GUI may activate the daemon through D-Bus.
 * **Signal Blocking:** The GUI blocks widget event signals when updating its visual state from telemetry snapshots, preventing feedback loops or unexpected writes.
 
 ---
@@ -135,10 +138,11 @@ Predator Sense is fully Wayland-native:
 
 ## Safety
 
-* **Allow-Listed Registers Only:** The daemon only ever reads or writes documented G3-572 registers (`0x10`, `0x21`, `0x22`, `0x37`, `0x3A`). Arbitrary address reading or writing is impossible over D-Bus.
+* **Allow-Listed Registers Only:** The daemon only writes documented G3-572 control registers (`0x10`, `0x21`, `0x22`, `0x37`, `0x3A`). RPM words at `0x13`/`0x15` are read-only. Arbitrary address reading or writing is impossible over D-Bus.
 * **Value Clamping:** Mode writes are strictly restricted to verified constants (`0x50`, `0x54`, `0x58`, `0x5C`, `0x60`, `0x70`); manual percentages are clamped to `0–100`.
 * **Readback Verification:** Every register write verifies that the register took the requested value.
-* **Non-Persistent Fallback:** If a hardware error occurs, the daemon attempts a best-effort Auto fallback to keep fans running safely.
+* **Non-Persistent Fallback:** On hardware write failure, the daemon attempts one best-effort Auto fallback when fan modes are recognized, retaining desired preferences.
+* **Recovery:** Startup and resume retry guarded EC preparation with backoff up to 30 seconds. Unsupported hardware stops recovery; failed writes are not replayed.
 * **Root GUI Refusal:** The GUI process actively refuses execution under EUID 0 to protect desktop session configuration files and IPC boundaries.
 
 ---
@@ -171,7 +175,7 @@ predator-sense-diagnostics --stdout
 predator-sense-diagnostics --output predator-diagnostics.txt
 ```
 
-The report inspects kernel, DMI, service status, EC file accessibility, kernel module parameters, graphic controllers, and live telemetry sources without capturing hostnames, user paths, or process lists.
+The report inspects kernel, DMI, service status, EC path availability (without opening it), kernel module parameters, graphic controllers, and live telemetry sources without capturing hostnames, user paths, or process lists.
 
 ---
 
@@ -180,6 +184,9 @@ The report inspects kernel, DMI, service status, EC file accessibility, kernel m
 Run unit tests and linting from the repository root:
 
 ```bash
+# Lint:
+ruff check .
+
 # Run complete hardware-free test suite:
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 
@@ -187,7 +194,8 @@ PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 python scripts/smoke_test.py
 ```
 
-All behavioral tests run without root, physical EC access, or live display servers.
+Tests inject host boundaries and guard against real EC/NVML/system-bus access. Dashboard renders use simulated hardware names and sensor data.
+GPU/model-name discovery in production runs in one shared background worker so the window does not wait for NVML or lspci.
 
 ---
 
@@ -202,3 +210,11 @@ All behavioral tests run without root, physical EC access, or live display serve
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See [`LICENSE`](LICENSE) for details.
+
+
+## Hardware evidence review
+
+The existing 70%/80% manual-testing and 300–500 RPM CoolBoost claims are retained
+for maintainer review. They are physical-hardware claims, not conclusions from
+mocked tests. See [the hardware specification](docs/g3-572-hardware.md) for the
+separation between physical observations, NBFC corroboration and candidate RPM.

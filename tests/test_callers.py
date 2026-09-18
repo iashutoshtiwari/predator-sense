@@ -1,10 +1,10 @@
 """Unprivileged client/UI tests; no system bus and no backend in the GUI."""
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 from support import BackendCase
+from dashboard_fixture import FakeModelDiscovery
 from predator_sense.core.state import load_coolboost_state, save_coolboost_state
 from predator_sense.service.client import ServiceClient, actionable_error
 from predator_sense.service.protocol import ERROR_PREFIX
@@ -64,7 +64,7 @@ class ClientWindowTests(BackendCase):
         self.addCleanup(self.client.stop)
 
     def window(self):
-        window = MainWindow(self.client)
+        window = MainWindow(self.client, model_discovery=FakeModelDiscovery())
         self.addCleanup(window.close)
         self.client.refresh()
         return window
@@ -227,3 +227,21 @@ class StatePersistenceTests(BackendCase):
             with self.assertRaises(OSError):
                 save_coolboost_state(False, state)
         self.assertTrue(load_coolboost_state(state))
+
+
+class ActivationTests(BackendCase):
+    def test_gui_read_retains_dbus_activation(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from PyQt6 import QtDBus
+        from predator_sense.service.client import QtBusTransport
+        connection = SimpleNamespace(asyncCall=Mock())
+        watcher = Mock()
+        watcher.isFinished.return_value = False
+        with patch.object(QtDBus, "QDBusPendingCallWatcher", return_value=watcher):
+            transport = QtBusTransport(connection=connection)
+            transport.call("GetTelemetrySnapshot", [], Mock())
+        message, timeout = connection.asyncCall.call_args.args
+        self.assertTrue(message.autoStartService())
+        self.assertEqual(message.member(), "GetTelemetrySnapshot")
+        self.assertEqual(timeout, 4000)

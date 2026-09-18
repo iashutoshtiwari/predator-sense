@@ -34,6 +34,7 @@ class Controller:
         self.recovered_at = 0.0
         self.state_loaded = False
         self.restore_failed = False
+        self.unknown_channels = set()
 
     def _apply(self, state):
         for channel in FanChannel:
@@ -46,6 +47,12 @@ class Controller:
 
     def safe_fallback(self):
         """Independent best-effort channels; never overwrite the desired settings."""
+        try:
+            self._observe_unknown_modes()
+        except HardwareError as exc:
+            return f"Cannot safely inspect fan modes: {exc}"
+        if self.unknown_channels:
+            return "Unknown fan mode; automatic fallback withheld"
         errors = []
         for channel in FanChannel:
             try:
@@ -58,6 +65,11 @@ class Controller:
             errors.append(str(exc))
         return "; ".join(errors)
 
+    def _observe_unknown_modes(self):
+        for channel in FanChannel:
+            if self.backend.get_fan_mode(channel) == FanMode.UNKNOWN:
+                self.unknown_channels.add(channel)
+
     def recover(self, *, startup=False):
         with self.operation_lock:
             self.restore_failed = False
@@ -69,8 +81,7 @@ class Controller:
             if not status.writable:
                 raise ServiceError("BackendUnavailable", "EC is not writable")
             # Read all control registers before restoring anything.
-            self.backend.get_cpu_fan_mode()
-            self.backend.get_gpu_fan_mode()
+            self._observe_unknown_modes()
             self.backend.get_cpu_manual_speed()
             self.backend.get_gpu_manual_speed()
             self.backend.get_coolboost()
@@ -83,6 +94,11 @@ class Controller:
                     self.desired = CoolingState()
                     self.startup_warning = f"Invalid saved state; using Auto and CoolBoost Off: {exc}"
                 self.state_loaded = True
+            if self.unknown_channels:
+                self.starting = False
+                self.degraded = ""
+                self.startup_warning = "Unknown fan mode; select a fan mode explicitly to establish known state."
+                return  # No automatic writes, including persistence or fallback.
             try:
                 self._apply(self.desired)
                 save_cooling_state(self.desired, self.state_file)
@@ -97,7 +113,7 @@ class Controller:
 
     def suspend(self):
         with self.operation_lock:
-            if self.state_loaded:
+            if self.state_loaded and not self.unknown_channels:
                 save_cooling_state(self.desired, self.state_file)
 
     def shutdown(self):
@@ -242,7 +258,14 @@ class Controller:
             backend.set_manual_speed(channel, args[0])
         else:
             raise ServiceError("UnknownMethod", "Unknown control method")
-        save_cooling_state(requested, self.state_file)
+        if member in ("SetGlobalAuto", "SetGlobalTurbo"):
+            self.unknown_channels.clear()
+        elif member in ("SetCpuFanMode", "SetGpuFanMode", "SetCpuManualSpeed", "SetGpuManualSpeed"):
+            self.unknown_channels.discard(FanChannel.CPU if member.startswith("SetCpu") else FanChannel.GPU)
+        if not self.unknown_channels:
+            save_cooling_state(requested, self.state_file)
+            if self.startup_warning.startswith("Unknown fan mode;"):
+                self.startup_warning = ""
         self.desired = requested
         self.state_loaded = True
         self.degraded = ""

@@ -4,10 +4,11 @@ from predator_sense.frontend import Ui_PredatorSense
 from predator_sense.service.client import ServiceClient
 from predator_sense.ui.instruments import set_role, set_text
 from predator_sense.ui.theme import THEME
+from predator_sense.ui.system_info import ModelDiscovery
 
 
 class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
-    def __init__(self, client: ServiceClient):
+    def __init__(self, client: ServiceClient, *, model_discovery=None):
         super().__init__()
         self.client = client
         self.last_error = ""
@@ -45,6 +46,16 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
         self.client.failed.connect(self._failed)
         self._render(self.client.snapshot)
         self.client.start()
+        self.model_discovery = model_discovery if model_discovery is not None else ModelDiscovery(self)
+        self.model_discovery.names_ready.connect(self._model_names_ready)
+        self.model_discovery.start()
+
+    def _model_names_ready(self, cpu, gpu):
+        for channel, name in (("cpu", cpu), ("gpu", gpu)):
+            label = self.cards[channel].device_name_label
+            set_text(label, name)
+            label.setToolTip(name)
+        self._adapt_layout()
 
     def _fan_controls(self):
         return (
@@ -229,4 +240,5 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
         for timer in self.manual_timers.values():
             timer.stop()
         self.client.stop()
+        self.model_discovery.stop()
         super().closeEvent(event)

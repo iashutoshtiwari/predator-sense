@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6 import QtCore, QtGui, QtTest, QtWidgets
 
 from dashboard_fixture import DashboardTransport, missing, samples
+from dashboard_fixture import FakeModelDiscovery
 from predator_sense.service.client import ServiceClient
 from predator_sense.service.telemetry_model import observed
 from predator_sense.ui.main_window import MainWindow
@@ -29,7 +30,7 @@ class DashboardTests(unittest.TestCase):
         self.transport = DashboardTransport(self.history[-1])
         self.client = ServiceClient(transport=self.transport)
         self.client.history.extend(self.history)
-        self.window = MainWindow(self.client)
+        self.window = MainWindow(self.client, model_discovery=FakeModelDiscovery())
         self.window.show()
         self.client.refresh()
         self.client.stop()

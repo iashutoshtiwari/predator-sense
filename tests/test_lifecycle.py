@@ -165,3 +165,139 @@ class SleepTests(IsolatedAsyncioTestCase):
         self.assertEqual(controller.lifecycle, "Suspended")
         self.assertTrue(await monitor.events.get())
         self.assertEqual(LOGIN, "org.freedesktop.login1")
+
+
+class UnknownModeTests(BackendCase):
+    def test_unknown_modes_block_all_automatic_writes_and_preserve_file(self):
+        for address in (0x21, 0x22):
+            with self.subTest(address=address):
+                self.ec.data[0x21] = 0
+                self.ec.data[0x22] = 0
+                self.ec.data[address] = 255
+                self.ec.writes.clear()
+                path = self.root / "unknown-state.json"
+                desired = CoolingState(cpu_mode="turbo", gpu_mode="turbo", coolboost_enabled=True)
+                save_cooling_state(desired, path)
+                original = path.read_bytes()
+                controller = Controller(self.backend, state_file=path)
+                controller.recover(startup=True)
+                self.assertTrue(controller.invoke("GetStatus", [])[0])  # Explicit controls remain available.
+                self.assertIn("Unknown fan mode", controller.startup_warning)
+                controller.suspend()
+                controller.recover()
+                controller.sample_ec()
+                controller.shutdown()
+                self.assertEqual(self.ec.writes, [])
+                self.assertEqual(path.read_bytes(), original)
+
+    def test_unknown_latch_requires_explicit_channel_action(self):
+        self.ec.data[0x22] = 255
+        self.ec.data[0x21] = 254
+        path = self.root / "state.json"
+        controller = Controller(self.backend, state_file=path)
+        controller.recover(startup=True)
+        self.assertFalse(path.exists())
+        controller.invoke("SetCpuFanMode", ["turbo"])
+        self.assertEqual(self.ec.data[0x21], 254)
+        self.assertFalse(path.exists())
+        self.ec.writes.clear()
+        controller.recover()
+        self.assertEqual(self.ec.writes, [])
+        controller.invoke("SetGpuFanMode", ["auto"])
+        self.assertFalse(controller.unknown_channels)
+        self.assertEqual(load_cooling_state(path).cpu_mode, "turbo")
+        self.assertEqual(load_cooling_state(path).gpu_mode, "auto")
+        self.assertEqual(controller.startup_warning, "")
+
+
+class PreparationRecoveryTests(BackendCase, IsolatedAsyncioTestCase):
+    async def exercise(self, *, resume=False, unsupported=False, fail_write=False):
+        from unittest.mock import Mock, patch
+        from predator_sense.core.errors import ErrorCode, HardwareError
+        controller = Controller(self.backend, state_file=self.root / "state.json")
+        if resume:
+            controller.recover(startup=True)
+            controller.lifecycle = "Recovering"
+        service = type("Service", (), {"controller": controller, "lock": asyncio.Lock()})()
+        prepare = Mock()
+        if unsupported:
+            prepare.side_effect = HardwareError(ErrorCode.UNSUPPORTED_HARDWARE, "Other model")
+        elif not fail_write:
+            prepare.side_effect = [OSError("temporarily unavailable"), None]
+        if fail_write:
+            self.ec.ignore_write = True
+        monitor = SleepMonitor(None, service, prepare=prepare)
+        monitor.events.put_nowait(False)
+        original = asyncio.wait_for
+        delays = []
+        async def short_wait(awaitable, timeout):
+            delays.append(timeout)
+            return await original(awaitable, 0.01)
+        with patch("predator_sense.service.lifecycle.asyncio.wait_for", side_effect=short_wait):
+            task = asyncio.create_task(monitor.run())
+            try:
+                for _ in range(100):
+                    if not controller.starting and not controller.lifecycle:
+                        break
+                    await asyncio.sleep(0.01)
+                self.assertFalse(controller.starting)
+                self.assertEqual(controller.lifecycle, "")
+                calls = prepare.call_count
+                await asyncio.sleep(0.04)
+                self.assertEqual(prepare.call_count, calls)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        if unsupported or fail_write:
+            self.assertEqual(prepare.call_count, 1)
+            self.assertTrue(controller.degraded)
+        else:
+            self.assertEqual(prepare.call_count, 2)
+            self.assertEqual(delays, [1])
+            self.assertFalse(controller.degraded)
+            self.assertEqual(self.backend.get_cpu_fan_mode(), FanMode.AUTO)
+        if unsupported:
+            self.assertEqual(self.ec.writes, [])
+
+    async def test_startup_retries_preparation_then_restores(self):
+        await self.exercise()
+
+    async def test_resume_reprepares_before_restoring(self):
+        await self.exercise(resume=True)
+
+    async def test_unsupported_stops_recovery_without_writes(self):
+        await self.exercise(unsupported=True)
+
+    async def test_failed_write_is_not_retried(self):
+        await self.exercise(fail_write=True)
+
+    async def test_backoff_caps_at_thirty_seconds_and_close_stops_retry(self):
+        from unittest.mock import Mock, patch
+        controller = Controller(self.backend, state_file=self.root / "state.json")
+        prepare = Mock(side_effect=OSError("missing EC"))
+        service = type("Service", (), {"controller": controller, "lock": asyncio.Lock()})()
+        monitor = SleepMonitor(None, service, prepare=prepare)
+        monitor.events.put_nowait(False)
+        delays = []
+        async def expire(awaitable, timeout):
+            awaitable.close()
+            delays.append(timeout)
+            if len(delays) == 8:
+                monitor.closed = True
+            raise TimeoutError()
+        with patch("predator_sense.service.lifecycle.asyncio.wait_for", side_effect=expire):
+            await monitor.run()
+        self.assertEqual(delays, [1, 2, 4, 8, 16, 30, 30, 30])
+        self.assertEqual(self.ec.writes, [])
+
+    async def test_suspended_or_stopping_never_prepares(self):
+        from unittest.mock import Mock
+        controller = Controller(self.backend, state_file=self.root / "state.json")
+        service = type("Service", (), {"controller": controller})()
+        prepare = Mock()
+        monitor = SleepMonitor(None, service, prepare=prepare)
+        for lifecycle in ("Suspended", "Stopping"):
+            controller.lifecycle = lifecycle
+            monitor._recover()
+        prepare.assert_not_called()
+        self.assertEqual(self.ec.writes, [])

@@ -6,7 +6,6 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 from predator_sense.core.profiles import FAN_RPM_MAX
 from predator_sense.font_config import font_numeric, font_ui
-from predator_sense.ui.system_info import get_cpu_model, get_gpu_model
 from predator_sense.ui.theme import THEME
 
 
@@ -115,7 +114,7 @@ class TelemetryCard(QtWidgets.QFrame):
         layout.setSpacing(8)
         heading = QtWidgets.QHBoxLayout()
         heading.addWidget(label(channel.upper(), size=13, bold=True))
-        device_name = get_cpu_model() if channel == "cpu" else get_gpu_model()
+        device_name = "Processor" if channel == "cpu" else "Graphics"
         self.device_name_label = label(device_name, role="muted", size=9)
         self.device_name_label.setToolTip(device_name)
         heading.addWidget(self.device_name_label)

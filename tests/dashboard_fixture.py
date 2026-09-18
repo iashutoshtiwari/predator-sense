@@ -1,6 +1,8 @@
 """Explicitly simulated presentation data. Never imported by production code."""
 
 from dataclasses import replace
+import host_guard  # noqa: F401 -- install hardware isolation before application imports
+
 import math
 import time
 
@@ -50,3 +52,18 @@ def missing(snapshot, *fields):
         observed(r.name, None, "SIMULATED unavailable sensor") if r.name in fields else r
         for r in snapshot.readings
     ))
+
+
+class FakeModelDiscovery:
+    """Synchronous fixture names; no procfs, NVML or PCI inspection."""
+    def __init__(self):
+        self.names_ready = self
+
+    def connect(self, callback):
+        self.callback = callback
+
+    def start(self):
+        self.callback("Intel Core i5-7300HQ", "NVIDIA GeForce GTX 1050 Ti")
+
+    def stop(self):
+        pass

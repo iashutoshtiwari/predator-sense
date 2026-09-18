@@ -3,19 +3,22 @@ import asyncio
 
 from dbus_next import Message, MessageType
 
+from predator_sense.core.errors import ErrorCode, HardwareError
+
 LOGIN = "org.freedesktop.login1"
 PATH = "/org/freedesktop/login1"
 MANAGER = LOGIN + ".Manager"
 
 
 class SleepMonitor:
-    def __init__(self, bus, service):
+    def __init__(self, bus, service, *, prepare=None):
         self.bus = bus
         self.service = service
         self.controller = service.controller
         self.owner = None
         self.events = asyncio.Queue()
         self.closed = False
+        self.prepare = prepare
 
     async def start(self):
         for rule in (
@@ -54,6 +57,14 @@ class SleepMonitor:
             self.controller.lifecycle = "Suspended" if message.body[0] else "Recovering"
             self.events.put_nowait(message.body[0])
 
+    def _recover(self):
+        if self.closed or self.controller.lifecycle in ("Suspended", "Stopping"):
+            return
+        self.controller.restore_failed = False
+        if self.prepare is not None:
+            self.prepare()
+        self.controller.recover()
+
     async def run(self):
         while not self.closed:
             sleeping = await self.events.get()
@@ -68,17 +79,23 @@ class SleepMonitor:
             while not self.closed and self.events.empty():
                 try:
                     async with self.service.lock:
-                        await asyncio.to_thread(self.controller.recover)
+                        await asyncio.to_thread(self._recover)
+                    if self.controller.startup_warning.startswith("Waiting for EC preparation:"):
+                        self.controller.startup_warning = ""
                     if not self.closed and self.events.empty():
                         self.controller.lifecycle = ""
                     break
                 except Exception as exc:
-                    if self.controller.restore_failed:
+                    unsupported = isinstance(exc, HardwareError) and exc.code == ErrorCode.UNSUPPORTED_HARDWARE
+                    if self.controller.restore_failed or unsupported:
+                        self.controller.starting = False
+                        if unsupported:
+                            self.controller.degraded = str(exc)
                         # An actual write failed: fallback was attempted, never replay it in a loop.
                         if not self.closed and self.events.empty():
                             self.controller.lifecycle = ""
                         break
-                    self.controller.startup_warning = f"Waiting for EC after resume: {exc}"
+                    self.controller.startup_warning = f"Waiting for EC preparation: {exc}"
                 try:
                     sleeping = await asyncio.wait_for(self.events.get(), delay)
                 except TimeoutError:

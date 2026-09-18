@@ -13,15 +13,13 @@ Validates all 9 Phase 8 scenarios:
 """
 
 import os
-from pathlib import Path
 import time
-import unittest
-from unittest.mock import patch
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PyQt6 import QtCore, QtWidgets
 
 from support import BackendCase
+from dashboard_fixture import FakeModelDiscovery
 from predator_sense.service.client import ServiceClient
 from predator_sense.service.protocol import ERROR_PREFIX
 from predator_sense.service.telemetry_model import FIELDS, TelemetrySnapshot, observed
@@ -120,7 +118,7 @@ class UiIntegrationTests(BackendCase):
         super().setUp()
         self.transport = SimTransport()
         self.client = ServiceClient(transport=self.transport)
-        self.window = MainWindow(self.client)
+        self.window = MainWindow(self.client, model_discovery=FakeModelDiscovery())
         self.client.refresh()
         self.addCleanup(self.window.close)
         self.addCleanup(self.client.stop)

@@ -1,5 +1,7 @@
 """All tests redirect logging and DMI/EC before any hardware-facing action."""
 
+import host_guard  # noqa: F401 -- install hardware isolation before application imports
+
 import atexit
 from contextlib import contextmanager
 from pathlib import Path

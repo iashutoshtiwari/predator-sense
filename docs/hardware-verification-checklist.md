@@ -29,7 +29,7 @@ For each step below, verify:
 
 | Step # | Action | Expected GUI State | Expected EC State | Expected Physical Behavior |
 | :--- | :--- | :--- | :--- | :--- |
-| **1** | **Fresh Boot** | UI opens to Auto/Auto; CoolBoost switch reflects `/var/lib/predator-sense/state.json` (or Off on clean install). | `0x22=0x54` (Auto), `0x21=0x50` (Auto). | Fans operate at quiet idle speeds. |
+| **1** | **Fresh Boot** | Saved modes/CoolBoost restore when observed modes are recognized; clean state selects Auto/Auto/Off. Unknown modes remain unknown pending explicit control. | Clean recognized state: `0x22=0x54`, `0x21=0x50`. Saved state: requested verified modes. | Observe response to the restored settings. |
 | **2** | **CoolBoost On** | Click CoolBoost switch to ON. Prompts Polkit dialog once. Switch turns red/active. | `0x10=0x01`. | Fan RPM increases moderately (~300–500 RPM higher acoustic floor). |
 | **3** | **CoolBoost Off** | Click CoolBoost switch to OFF. Polkit auth retained. Switch turns gray/inactive. | `0x10=0x00`. | Fan RPM settles back to normal baseline. |
 | **4** | **CPU Manual (50%)** | Select CPU Manual, move slider to 50%, release mouse. | `0x22=0x5C`, `0x37=0x32` (50). | CPU fan speeds up to steady 50% sound level. GPU fan remains in Auto. |
@@ -58,3 +58,10 @@ Verify:
 - [ ] No per-second polling logs at INFO level.
 - [ ] Polkit checks logged only upon control mutations.
 - [ ] Clean logind sleep/resume events captured without unhandled exceptions.
+
+
+The 70%/80% and 300–500 RPM statements are retained for maintainer evidence review;
+see [the hardware specification](g3-572-hardware.md#maintainer-evidence-review).
+Mocks and offscreen rendering cannot establish these physical effects. Lifecycle
+logging should be checked for failures; individual sleep/Polkit events are not all
+currently logged as separate informational messages.

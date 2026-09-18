@@ -6,7 +6,11 @@ control or privileged EC access.
 
 from __future__ import annotations
 
+from concurrent.futures import Future
 import re
+from threading import Thread
+
+from PyQt6 import QtCore
 import subprocess
 
 _CACHED_CPU: str | None = None
@@ -103,3 +107,57 @@ def get_gpu_model() -> str:
 
     _CACHED_GPU = gpu or "Graphics"
     return _CACHED_GPU
+
+
+_NAMES_FUTURE = None
+
+
+def _model_names():
+    return get_cpu_model(), get_gpu_model()
+
+
+class ModelDiscovery(QtCore.QObject):
+    """One process-wide background discovery; a stuck NVML call is never resubmitted.
+
+    The worker is daemonized and only handles strings, never Qt widgets. Completed
+    names are cached across windows. Closing a window stops its result timer.
+    """
+    names_ready = QtCore.pyqtSignal(str, str)
+
+    def __init__(self, parent=None, *, discover=None):
+        super().__init__(parent)
+        self.discover = discover
+        self.future = None
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(100)
+        self.timer.timeout.connect(self._deliver)
+
+    def start(self):
+        global _NAMES_FUTURE
+        if self.future is None:
+            if self.discover is None and _NAMES_FUTURE is not None:
+                self.future = _NAMES_FUTURE
+            else:
+                self.future = Future()
+                if self.discover is None:
+                    _NAMES_FUTURE = self.future
+                future = self.future
+                discover = self.discover or _model_names
+
+                def run():
+                    try:
+                        future.set_result(discover())
+                    except Exception:
+                        future.set_result(("Processor", "Graphics"))
+
+                Thread(target=run, name="hardware-model-discovery", daemon=True).start()
+        self.timer.start()
+        self._deliver()
+
+    def _deliver(self):
+        if self.future is not None and self.future.done():
+            self.timer.stop()
+            self.names_ready.emit(*self.future.result())
+
+    def stop(self):
+        self.timer.stop()
