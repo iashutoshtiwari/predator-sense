@@ -44,7 +44,6 @@ It distinguishes implemented safeguards from outstanding physical validation. Ke
 | `tests/` | Hardware-free backend, controller, service, and diagnostics checks using unittest. |
 | `scripts/smoke_test.py` | Required-file presence check only. |
 | `scripts/validate_fan_telemetry.py` | Read-only cached RPM validation; no daemon activation, modes changed separately in GUI. |
-| `scripts/collect_diagnostics.py` | Read-only system/EC diagnostics, written to a report file. |
 | `.github/workflows/ci.yml`, `pyproject.toml` | Authoritative CI commands and Ruff configuration. |
 
 Start with the relevant files rather than scanning bundled fonts, images, or
@@ -123,7 +122,7 @@ The existing CI checks are:
 
 ```bash
 ruff check .
-python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py src/service/*.py src/daemon_main.py scripts/smoke_test.py scripts/collect_diagnostics.py scripts/validate_fan_telemetry.py
+python -m py_compile src/predator_sense/main.py src/predator_sense/frontend.py src/predator_sense/font_config.py src/predator_sense/core/*.py src/predator_sense/ui/*.py src/predator_sense/service/*.py src/predator_sense/daemon_main.py scripts/smoke_test.py scripts/validate_fan_telemetry.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 python scripts/smoke_test.py
 test -f PKGBUILD
@@ -133,7 +132,7 @@ grep -q '^pkgname=predator-sense' PKGBUILD
 For shell/packaging edits, syntax-check without executing the hooks:
 
 ```bash
-for file in PKGBUILD predator-sense.install packaging/predator-sense packaging/predator-sensed configure.sh; do
+for file in PKGBUILD predator-sense.install; do
   bash -n "$file" || exit 1
 done
 ```
@@ -158,9 +157,8 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
   `core/profiles.py`.
 - `frontend.py` is now hand-maintained and uses Qt layouts. Keep it presentation-only;
   graphs/cards consume snapshots/history, never poll or import hardware.
-- Use `ui/theme.py` for colors and desktop identity. UI fonts come from the system;
-  the old bundled Squares files remain unlicensed audit material and are not used
-  or installed. Do not reactivate them without a confirmed grant.
+- Use `ui/theme.py` for colors and desktop identity. UI fonts use the bundled
+  open-source Turret Road font (SIL OFL 1.1) with system fallback.
 - Radio-button `toggled` fires on both selection and deselection. The controller
   uses `clicked` for hardware actions and blocks signals while refreshing observed
   state. Preserve zero-write startup and test global/individual transitions.
@@ -189,9 +187,6 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
 - Regenerate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO` when changing
   package metadata. Do not hand-edit generated package trees or commit archives,
   caches, local environments, or diagnostics reports.
-- `configure.sh` is deprecated and deliberately exits with status 1.
-  `main.spec` is a PyInstaller recipe, but PyInstaller is not in the declared
-  dependencies and that build path is not exercised by CI.
 - Existing licensing metadata conflicts: `LICENSE` contains GPLv3 while
   `PKGBUILD` and `.SRCINFO` declare MIT. Do not silently resolve this discrepancy
   as part of an unrelated change.

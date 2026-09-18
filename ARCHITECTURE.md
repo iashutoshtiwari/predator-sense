@@ -381,7 +381,7 @@ files are not installed, and the PyInstaller recipe remains outside CI.
 
 Installation/upgrade has persistent system and potential hardware effects. Do not
 execute hooks or install the package as a test. Package verification must use
-syntax checks or a non-installing normal-user build. `configure.sh` is deprecated.
+syntax checks or a non-installing normal-user build.
 
 ### License and asset provenance (unresolved)
 
@@ -594,20 +594,17 @@ No transitions, timer animations, widget-tree rebuilds, plotting frameworks,
 webviews, QML, or unrelated features are introduced.
 
 Colors, stylesheet, spacing, and desktop ID are centralized in `ui/theme.py`.
-`font_config.py` uses Qt system UI/monospace fonts. The old Squares assets and old
-icon remain in the repository as audit material, but are no longer loaded or
-packaged. Their historical provenance and the repository's GPL/MIT mismatch remain
-unresolved; this change does not claim or assign their licences. The new SVG is
-an original geometric thermal-control mark, not a copied Acer logo.
+`font_config.py` loads the open-source geometric typeface Turret Road (SIL Open
+Font License 1.1) bundled under `assets/fonts/` with graceful fallback to system
+UI/monospace fonts. The new SVG is an original geometric thermal-control
+mark, not a copied Acer logo.
 
 Qt application name/desktopFileName, installed desktop filename, StartupWMClass,
 and hicolor SVG name use `io.github.iashutoshtiwari.PredatorSense`; visible title is
-Predator Sense. Source/installed/PyInstaller asset resolution is retained. `qt6-svg`
+Predator Sense. Source and installed asset resolution is retained. `qt6-svg`
 is an explicit Arch runtime dependency for the icon (it is optional in Arch's
 [python-pyqt6 package](https://archlinux.org/packages/extra/x86_64/python-pyqt6/)).
-PKGBUILD installs both UI modules and SVG, removes the old font/ICO installation,
-and uses pkgrel 4 with regenerated `.SRCINFO`. The PyInstaller asset list is
-updated, but that build path remains outside CI.
+PKGBUILD installs both UI modules and SVG, and uses pkgrel 4 with regenerated `.SRCINFO`.
 
 Qt retains session platform selection and native scaling. The desktop identifier
 follows [Qt's desktopFileName contract](https://doc.qt.io/qt-6/qguiapplication.html#desktopFileName-prop),
@@ -691,8 +688,7 @@ ownership, permissions, and bytecode compilation.
   `StartupWMClass=io.github.iashutoshtiwari.PredatorSense`, and `Categories=System;Settings;`.
 - Scalable vector icon installed to `/usr/share/icons/hicolor/scalable/apps/`.
 - No forced XCB platform (`QT_QPA_PLATFORM=xcb` is never exported); native Wayland sessions are preserved.
-- Bundled Squares fonts remain uninstalled audit material due to confirmed commercial copyright
-  from TypeType (Ivan Gladkikh and Olexa Volochay, 2014); the UI relies strictly on system fonts.
+- The UI bundles the open-source Turret Road font (SIL OFL 1.1) under `assets/fonts/` with system fallback.
 
 ### Installation verification and state lifecycle
 

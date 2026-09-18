@@ -1,9 +1,8 @@
 """Unprivileged client/UI tests; no system bus and no backend in the GUI."""
 
-import importlib.util
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from support import BackendCase
 from predator_sense.core.state import load_coolboost_state, save_coolboost_state
@@ -208,7 +207,7 @@ class ClientWindowTests(BackendCase):
         self.assertTrue(window.manual_timers["cpu"].isActive())
 
 
-class StateDiagnosticsTests(BackendCase):
+class StatePersistenceTests(BackendCase):
     def test_state_schema_and_atomic_replacement(self):
         state = self.root / "saved" / "state.json"
         self.assertFalse(load_coolboost_state(state))
@@ -228,14 +227,3 @@ class StateDiagnosticsTests(BackendCase):
             with self.assertRaises(OSError):
                 save_coolboost_state(False, state)
         self.assertTrue(load_coolboost_state(state))
-
-    def test_diagnostics_only_requests_daemon_data(self):
-        path = Path(__file__).resolve().parent.parent / "scripts/collect_diagnostics.py"
-        spec = importlib.util.spec_from_file_location("diagnostics", path)
-        diagnostics = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(diagnostics)
-        report = []
-        with patch.object(diagnostics, "read_daemon_ec", AsyncMock(return_value={0x13: 2000})):
-            diagnostics.append_ec_registers(report, (0x13,))
-        self.assertIn("0x13: 2000", report)
-        self.assertEqual(self.ec.writes, [])

@@ -137,7 +137,6 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Icon=" + APP_ID, desktop)
         recipe = (root / "PKGBUILD").read_text()
         self.assertIn(APP_ID + ".desktop", recipe)
-        self.assertNotIn("install -m644 fonts/", recipe)
         self.assertTrue((root / "assets/predator-sense.svg").exists())
 
     def test_larger_fonts_keep_controls_reachable(self):

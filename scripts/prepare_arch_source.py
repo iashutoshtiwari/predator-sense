@@ -15,6 +15,10 @@ def prepare(root):
     paths = [root / p for p in ("pyproject.toml", "README.md", "LICENSE")]
     paths += list((root / "src/predator_sense").rglob("*.py"))
     paths += list((root / "src/predator_sense/assets").glob("*.svg"))
+    font_dir = root / "src/predator_sense/assets/fonts"
+    if font_dir.is_dir():
+        paths += list(font_dir.glob("*.ttf"))
+        paths += list(font_dir.glob("*.txt"))
     paths += [p for p in (root / "packaging").iterdir() if p.is_file()]
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as archive:
