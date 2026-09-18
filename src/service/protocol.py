@@ -12,6 +12,7 @@ ERROR_PREFIX = BUS_NAME + ".Error."
 # Scalar signatures keep the contract usable from QtDBus and ordinary bus tools.
 # Unknown integer telemetry/control values are -1; temperatures are millidegrees C.
 READ_METHODS = {
+    "GetTelemetrySnapshot": ("", "s"),  # versioned JSON, null for unavailable values
     "GetHardwareIdentity": ("", "ssbb"),
     "GetStatus": ("", "bss"),
     "GetFanState": ("", "ssii"),

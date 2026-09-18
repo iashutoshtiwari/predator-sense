@@ -31,11 +31,7 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
         self.client.busy_changed.connect(self._busy_changed)
         self.client.failed.connect(self._failed)
         self._render(self.client.snapshot)
-        self.refresh_timer = QtCore.QTimer(self)
-        self.refresh_timer.setInterval(2000)
-        self.refresh_timer.timeout.connect(self._refresh)
-        self.refresh_timer.start()
-        QtCore.QTimer.singleShot(0, self.client.refresh)
+        self.client.start()
 
     def _fan_controls(self):
         return (
@@ -50,12 +46,6 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
             button.setChecked(button is selected)
         for button in buttons:
             button.setAutoExclusive(True)
-
-    def _refresh(self):
-        # Do not reset a slider while the user is choosing its next value.
-        if any(timer.isActive() for timer in self.manual_timers.values()):
-            return
-        self.client.refresh()
 
     def _render(self, state):
         widgets = [self.global_auto, self.global_turbo, self.coolboost_checkbox]
@@ -80,7 +70,7 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
                         "turbo": turbo,
                     }.get(mode),
                 )
-                if percent >= 0:
+                if percent >= 0 and not self.manual_timers[channel].isActive() and not slider.isSliderDown():
                     slider.setValue((percent + 5) // 10)
                 slider.setEnabled(enabled and mode == "manual" and percent >= 0)
             global_selected = None
@@ -125,3 +115,9 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
         slider = self.verticalSlider if channel == "cpu" else self.verticalSlider_2
         percent = slider.value() * 10
         self._action(lambda: getattr(self.client, f"set_{channel}_manual_speed")(percent))
+
+    def closeEvent(self, event):
+        for timer in self.manual_timers.values():
+            timer.stop()
+        self.client.stop()
+        super().closeEvent(event)

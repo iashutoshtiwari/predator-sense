@@ -39,6 +39,7 @@ logger = get_logger(__name__)
 # coordinates this application's GUI/service processes, not firmware/other tools.
 _EC_LOCK = threading.RLock()
 _LOCK_TIMEOUT = 2.0
+_RPM_WARNING_INTERVAL = 60.0
 
 
 def _os_error(exc: OSError) -> HardwareError:
@@ -109,6 +110,7 @@ class G3572EcBackend:
 
     def __init__(self, *, _transport=None):
         self._transport = _transport if _transport is not None else _EcFileTransport()
+        self._rpm_warning_at = {}
 
     def get_identity(self) -> HardwareIdentity:
         return get_hardware_identity()
@@ -247,7 +249,16 @@ class G3572EcBackend:
         with self._transaction() as session:
             value = self._read(session, RPM_REGISTERS[channel], 2)
         if value > FAN_RPM_MAX:
-            logger.debug("Unavailable %s fan RPM: implausible raw value %d", channel.value, value)
+            # Bound warnings per channel, including intermittent failures. Never
+            # clamp a corrupt sample or retry it in a tight polling loop.
+            with _EC_LOCK:
+                now = time.monotonic()
+                if now >= self._rpm_warning_at.get(channel, float("-inf")):
+                    self._rpm_warning_at[channel] = now + _RPM_WARNING_INTERVAL
+                    logger.warning(
+                        "Unavailable %s candidate RPM: raw word %d at 0x%02X outside 0..%d",
+                        channel.value, value, RPM_REGISTERS[channel], FAN_RPM_MAX,
+                    )
             return None
         return value
 

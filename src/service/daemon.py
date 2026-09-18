@@ -97,6 +97,8 @@ class ControlService:
         validate_call(member, signature, body)
         if not sender or not sender.startswith(":"):
             raise ServiceError("NotAuthorized", "Missing unique D-Bus caller identity")
+        if member in ("GetTelemetrySnapshot", "GetTemperatures"):
+            return self.controller.invoke(member, body)
         if member == "GetStatus" and self.controller.starting:
             return self.controller.invoke(member, body)
         if member in CONTROL_METHODS:
@@ -157,6 +159,8 @@ async def run_daemon():
     from core.env_checks import ensure_ec_access, run_env_checks
     from core.hardware import G3572EcBackend
     from service.controller import Controller
+    from service.sensors import CoretempSensor, NvmlSensor
+    from service.telemetry import TelemetryEngine
 
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     controller = Controller(G3572EcBackend())
@@ -179,15 +183,20 @@ async def run_daemon():
             finally:
                 controller.starting = False
 
+    controller.telemetry = TelemetryEngine(CoretempSensor(), NvmlSensor(), controller.sample_ec)
+    sampling = asyncio.create_task(controller.telemetry.run())
     startup = asyncio.create_task(initialize())
     stop = asyncio.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         asyncio.get_running_loop().add_signal_handler(sig, stop.set)
     disconnected = asyncio.create_task(bus.wait_for_disconnect())
     stopping = asyncio.create_task(stop.wait())
-    await asyncio.wait((disconnected, stopping), return_when=asyncio.FIRST_COMPLETED)
+    await asyncio.wait((disconnected, stopping, sampling), return_when=asyncio.FIRST_COMPLETED)
     stopping.cancel()
     bus.remove_message_handler(service.handle_message)
+    sampling_failed = sampling.done() and not sampling.cancelled()
+    sampling.cancel()
+    await asyncio.gather(sampling, return_exceptions=True)
     await startup
     for task in list(service.tasks):
         task.cancel()
@@ -195,4 +204,6 @@ async def run_daemon():
     bus.disconnect()
     await disconnected
     if not stop.is_set():
-        raise RuntimeError("System D-Bus disconnected unexpectedly")
+        reason = ("Telemetry sampler stopped unexpectedly" if sampling_failed
+                  else "System D-Bus disconnected unexpectedly")
+        raise RuntimeError(reason)

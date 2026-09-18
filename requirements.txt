@@ -1,2 +1,4 @@
 PyQt6>=6.6
 dbus-next>=0.2.3,<0.3
+# Official NVIDIA NVML binding; missing binding/driver is handled as unavailable.
+nvidia-ml-py>=12.560.30,<14

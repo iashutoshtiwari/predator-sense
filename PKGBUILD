@@ -1,13 +1,14 @@
 pkgname=predator-sense
 pkgver=0.2.0
-pkgrel=2
+pkgrel=3
 pkgdesc="Predator Sense fan control app for Helios 300 G3-572-55UB"
 arch=('x86_64')
 url="local"
 license=('MIT')
 depends=('python' 'python-pyqt6' 'python-dbus-next' 'polkit' 'dbus' 'qt6-wayland')
 install="${pkgname}.install"
-optdepends=('evtest: monitor keyboard events while troubleshooting')
+optdepends=('evtest: monitor keyboard events while troubleshooting'
+            'python-nvidia-ml-py: NVIDIA GPU temperature via NVML')
 source=()
 sha256sums=()
 
@@ -44,6 +45,9 @@ package() {
   install -m644 src/service/controller.py "${pkgdir}/usr/share/predator-sense/src/service/controller.py"
   install -m644 src/service/daemon.py "${pkgdir}/usr/share/predator-sense/src/service/daemon.py"
   install -m644 src/service/client.py "${pkgdir}/usr/share/predator-sense/src/service/client.py"
+  install -m644 src/service/telemetry_model.py "${pkgdir}/usr/share/predator-sense/src/service/telemetry_model.py"
+  install -m644 src/service/sensors.py "${pkgdir}/usr/share/predator-sense/src/service/sensors.py"
+  install -m644 src/service/telemetry.py "${pkgdir}/usr/share/predator-sense/src/service/telemetry.py"
   install -m644 app_icon.ico "${pkgdir}/usr/share/predator-sense/app_icon.ico"
 
   install -dm755 "${pkgdir}/usr/share/predator-sense/fonts"

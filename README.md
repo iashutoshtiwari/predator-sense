@@ -30,7 +30,8 @@ Wayland on a Wayland session and X11 on an X11 session. The package includes
 `qt6-wayland`; no platform override is applied.
 
 Runtime packages: `python`, `python-pyqt6`, `python-dbus-next`, `polkit`, `dbus`,
-and `qt6-wayland`. An active desktop Polkit authentication agent is required for
+and `qt6-wayland`. Optional `python-nvidia-ml-py` supplies NVIDIA GPU temperatures
+using the installed NVIDIA driver. An active desktop Polkit authentication agent is required for
 control actions (normally supplied by Plasma). Reads do not prompt. Mutations
 require administrator authentication, retained temporarily by Polkit; slider
 changes are debounced and only one control request is outstanding at a time.
@@ -54,6 +55,25 @@ Installing Python dependencies alone does not install the system service, bus
 policy, or Polkit action. Without the daemon, the GUI stays open, disables controls,
 and shows an actionable status. It retries automatically. Root access, DMI reads,
 EC access, and system state writes never take place in the GUI process.
+
+## Telemetry
+
+The daemon publishes one cached snapshot per second. CPU temperature comes from
+`coretemp` sysfs, preferring `Package id 0` and falling back to the hottest readable
+coretemp input. GPU temperature uses NVIDIA's `nvidia-ml-py` binding (`pynvml`),
+available as the optional Arch package `python-nvidia-ml-py`. The binding and a
+working GTX 1050 Ti NVIDIA driver must be available to the daemon's system Python;
+a GUI virtual environment alone does not provide the daemon's dependencies.
+
+Snapshots include temperatures, candidate EC fan RPM, fan modes, CoolBoost, manual
+percentages, timestamps, and per-sensor availability/errors. Missing readings are
+`None`, and old readings become explicitly stale. CPU, GPU, and EC reads run in
+separate bounded workers, so a slow GPU cannot freeze the window. There are no
+per-second subprocesses or telemetry disk writes.
+
+`ServiceClient.telemetry_updated(snapshot)` and its bounded `history` (120 samples)
+are available for future graph widgets. The existing fan-control UI uses this same
+snapshot; temperature graphs and a visual redesign are outside this phase.
 
 ## Troubleshooting
 
@@ -84,6 +104,31 @@ commands; inspect it before sharing. A zero-duration GPU sample currently execut
 one sample. This is an existing diagnostics limitation, not a telemetry loop in
 the GUI or daemon.
 
+## Validate fan readings
+
+With the matching daemon already running, observe cached fan data without changing
+hardware or starting the daemon:
+
+```bash
+python scripts/validate_fan_telemetry.py --samples 60 --label auto
+python scripts/validate_fan_telemetry.py --samples 60 --label manual-50
+```
+
+Output is timestamped CSV on stdout at 1 Hz, with CPU/GPU candidate RPM, availability,
+modes, CoolBoost, manual settings, temperatures, and daemon sample sequence. Labels
+only annotate output. Use the GUI separately to compare Auto, Auto + CoolBoost,
+Manual approximately 30%, 50%, 70%, and Turbo; allow each setting to settle before
+recording. Capture BIOS V1.22, workload, temperatures, and independent reference
+readings when comparing. Do not run another EC control tool concurrently.
+
+The tool pins an existing daemon owner and refuses auto-activation, avoiding a
+startup-triggered CoolBoost restore. It stops if that owner disappears. It neither
+opens EC directly nor sends control requests. Unknown/stale values print
+`Unavailable`; an actual zero prints `0`. Repeated sequence numbers mean the same
+cached sample. No smoothing or scaling is applied. NBFC confirms the read map and
+little-endian convention, but absolute RPM units and physical channel correlation
+still need on-device validation; see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Development checks
 
 Use an isolated Python 3.12 environment and `requirements-dev.txt`:
@@ -99,6 +144,12 @@ instance for Qt/dbus-next integration. The private-bus fixture includes a fake
 Polkit authority; it never contacts the system bus. No root or hardware access is
 required. The offscreen platform override is test-only. Private-bus tests are
 skipped when `dbus-daemon` is unavailable; CI checks for it explicitly.
+
+An optional three-minute offscreen Qt soak introduces fake GPU stalls/failures:
+
+```bash
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen python tests/telemetry_soak.py
+```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the wire API, hardware evidence,
 security boundary, known limitations, and remaining physical validation.

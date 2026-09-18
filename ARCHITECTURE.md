@@ -1,8 +1,9 @@
 # Predator Sense architecture and hardware contract
 
-Updated 2026-09-18 for Phase 2. The Phase 0 audit and Phase 1 backend are retained
+Updated 2026-09-18 for Phase 4. The Phase 0 audit and Phase 1 backend are retained
 as the hardware evidence and safety foundation. Phase 2 moves all production EC
-access and saved-state ownership into a root daemon. Real-device validation is
+access and saved-state ownership into a root daemon. Phase 3 adds cached 1 Hz
+telemetry with isolated sensor workers and bounded history. Real-device validation is
 separate from the mocked and private-bus verification below.
 
 ## Product and process boundary
@@ -42,8 +43,11 @@ launches require the matching system service/policies to be installed separately
 | [`src/ui/main_window.py`](src/ui/main_window.py) | Client actions, debounced sliders, availability/busy/error rendering, observed state. |
 | [`src/service/client.py`](src/service/client.py) | Nonblocking QtDBus calls, timeouts, error mapping, state refresh, one pending mutation. |
 | [`src/service/protocol.py`](src/service/protocol.py) | Stable names, signatures, strict validation, generated introspection; no I/O. |
+| [`src/service/telemetry_model.py`](src/service/telemetry_model.py) | Immutable snapshot/reading schema, availability, freshness, JSON validation. |
+| [`src/service/sensors.py`](src/service/sensors.py) | Direct coretemp sysfs discovery and lazy NVML GPU reader; daemon only. |
+| [`src/service/telemetry.py`](src/service/telemetry.py) | Three bounded workers, monotonic 1 Hz publication, 120-sample history. |
 | [`src/daemon_main.py`](src/daemon_main.py), [`src/service/daemon.py`](src/service/daemon.py) | Root-only daemon entry, system bus, sender-based Polkit checks, bounded request queue, serialized dispatch. No Qt dependency in daemon code. |
-| [`src/service/controller.py`](src/service/controller.py) | Hardware operations, saved CoolBoost restoration/persistence, fixed sysfs temperature reads. |
+| [`src/service/controller.py`](src/service/controller.py) | Hardware operations, saved CoolBoost restoration/persistence, serialized EC sampling. |
 | [`src/core/hardware.py`](src/core/hardware.py) | Guarded G3572EcBackend, private EC byte/word transport, locking and verified writes. |
 | [`src/core/profiles.py`](src/core/profiles.py), [`src/core/errors.py`](src/core/errors.py) | Immutable one-machine map, enums/identity/status and structured hardware failures. |
 | [`src/core/env_checks.py`](src/core/env_checks.py) | Authoritative exact DMI gate and bounded daemon-only ec_sys preparation. |
@@ -60,17 +64,18 @@ launches require the matching system service/policies to be installed separately
 - Polkit action: `io.github.iashutoshtiwari.predatorsense.control`
 - Domain error prefix: `io.github.iashutoshtiwari.PredatorSense.Error.`
 
-All public methods use scalar D-Bus types. Unknown integers are `-1`, preserving
-zero as a valid value. The interface is introspectable; there are no arbitrary
+All public methods use scalar D-Bus types. Legacy integer reads use `-1` for
+unknown, preserving zero as a valid value. The telemetry JSON uses `null` instead. The interface is introspectable; there are no arbitrary
 address/path/command methods, writable properties, or caller-supplied identities.
 
 | Method | Input signature | Output and meaning |
 | --- | --- | --- |
+| GetTelemetrySnapshot | empty | `s`: cached version-1 JSON snapshot, including availability and timestamps; no hardware I/O. |
 | GetHardwareIdentity | empty | `ssbb`: product, BIOS (empty if unavailable), supported, tested BIOS. |
 | GetStatus | empty | `bss`: control-ready, error code, explanation/startup warning. |
 | GetFanState | empty | `ssii`: CPU mode, GPU mode, CPU control %, GPU control %. |
 | GetCoolBoost | empty | `i`: -1 unknown, 0 off, 1 on. |
-| GetTemperatures | empty | `ii`: CPU/GPU millidegrees C or -1; hottest valid coretemp/nvidia/nouveau hwmon input. |
+| GetTemperatures | empty | `ii`: CPU/GPU millidegrees C or -1, from the cached telemetry snapshot. |
 | GetFanSpeeds | empty | `ii`: candidate CPU/GPU RPM or -1. |
 | SetCpuFanMode / SetGpuFanMode | `s` | Empty result after verification; auto, turbo, or manual only. Manual preserves existing valid control value. |
 | SetCpuManualSpeed / SetGpuManualSpeed | `i` | Empty result; strictly 0–100, enters Manual then applies/verifies speed. |
@@ -96,8 +101,10 @@ and [retained-authorization guidance](https://polkit.pages.freedesktop.org/polki
 
 Authorization has a 110-second deadline and cancellation request; GUI mutations
 have a 120-second deadline, reads four seconds. There are at most four pending
-calls per sender and 32 overall. An asyncio lock serializes controller operations;
-blocking hardware work runs off the event loop. Backend locks remain in place.
+calls per sender and 32 overall. An asyncio lock serializes live controller operations;
+blocking hardware work runs off the event loop. Cached telemetry/temperature reads
+bypass the operation lock. EC sampling and controls share a thread lock so a sample
+does not interleave with a mutation. Backend locks remain in place.
 The protocol/client cannot import the hardware through their dependency chain.
 
 ## Daemon startup, lifecycle, and session behavior
@@ -119,13 +126,90 @@ It deliberately avoids ProtectKernelTunables/ProtectKernelModules/PrivateDevices
 which could block writable debugfs or module preparation. These settings require
 real-device validation; the service is not installed or launched by unit tests.
 
-The GUI polls read-only state every two seconds, suspends refresh while editing a
-slider or awaiting a mutation, and coalesces slider changes over 250 ms. It stays
-open on absence/startup, denied/cancelled authorization, timeout, unsupported
-hardware, and EC errors. Controls are disabled while unavailable or busy; status
-text and tooltips describe the action needed. Stale replies from reads started
-before a mutation are discarded. A timed-out request may already have applied,
-so observed state is refreshed instead of assuming a rollback.
+The client polls one cached snapshot each second, including while awaiting Polkit.
+Widgets contain no polling or hardware reads. Slider changes coalesce over 250 ms;
+refresh does not overwrite an active slider choice. The GUI stays open on service
+absence/startup, authorization failures, timeout, unsupported hardware, and EC
+errors. Controls are disabled while unavailable, stale, or busy. Reads initiated
+before a new mutation are discarded; subsequent ticks observe the applied state.
+A timed-out mutation may already have applied, so the client does not assume rollback.
+
+## Phase 3 telemetry contract
+
+**Sources.** CPU discovery reads `/sys/class/hwmon/hwmon*/name` on every sample and
+selects `coretemp`, independent of hwmon indices. A readable `Package id 0` label
+wins over hotter core readings. If it is missing or unreadable, use the hottest
+valid coretemp input, including unlabelled inputs. Values are read directly from
+`temp*_input` in millidegrees and converted to Celsius, accepting 0–125 °C.
+The [kernel coretemp documentation](https://www.kernel.org/doc/html/latest/hwmon/coretemp.html)
+describes these inputs and package/core labels. Rediscovery permits renumbering
+after driver reload; other hwmon devices are never substituted for the CPU.
+
+GPU temperature uses [NVIDIA's nvidia-ml-py binding](https://pypi.org/project/nvidia-ml-py/)
+(import name `pynvml`). NVML initializes lazily in the GPU worker, selects the
+GTX 1050 Ti by device name, caches its handle, and calls `nvmlDeviceGetTemperature`.
+There is no subprocess fallback. Missing bindings, driver/library, device loss,
+and unavailable temperature support produce unavailable readings. Permission
+errors remain distinct. A failure invalidates the handle and shuts down the
+session; retries occur at most once every five seconds, without repetitive logs.
+Normal shutdown calls NVML cleanup from its owning worker.
+
+The [Arch python-nvidia-ml-py package](https://archlinux.org/packages/extra/any/python-nvidia-ml-py/)
+is an optional runtime dependency because it brings an NVIDIA userspace dependency;
+CPU/EC telemetry must still run without NVIDIA installed. `requirements.txt` includes
+the Python binding for source environments. The service uses system Python, so a
+binding installed only in the GUI's virtual environment is insufficient.
+
+RPM, mode, CoolBoost, and manual settings come from the existing guarded semantic
+G3-572 backend, with its existing little-endian RPM map and plausibility checks.
+Each EC getter has independent failure handling. A failed CPU RPM read does not
+clear a successful GPU RPM or fan-mode read. Sampling never writes EC or state.
+These remain candidate RPM readings until physically correlated on the laptop.
+
+**Scheduling and isolation.** The asyncio daemon publishes on anchored monotonic
+one-second deadlines, skips missed slots, and never schedules catch-up bursts.
+CPU, GPU, and EC each own one persistent daemon worker thread and at most one
+outstanding read. Publication consumes completed results without waiting, then
+requests the next read. Fast results can be about one sampling interval old when
+published. A slow GPU cannot delay CPU/EC samples, the bus dispatcher, or Qt. A
+stalled lane is not resubmitted or replaced with additional threads. Shutdown
+signals workers without waiting on a hung foreign driver call; cleanup runs when
+that read returns. Python cannot forcibly interrupt NVML: a permanently hung call
+leaves that lane stale until service restart. Unexpected sampler termination exits
+the service so systemd can restart it. None of these paths spawn sensor processes.
+
+**Model and freshness.** `TelemetrySnapshot` and each `Reading` are frozen dataclasses;
+readings are a fixed tuple. The snapshot exposes `cpu_temp_c`, `gpu_temp_c`,
+`cpu_fan_rpm`, `gpu_fan_rpm`, `cpu_mode`, `gpu_mode`, `coolboost`, and the two
+`*_manual_percent` properties. Missing values are `None`, never fabricated zeroes.
+`reading(name)` exposes value, source, status, error, and monotonic sample time.
+Availability is one of `available`, `unavailable`, `permission_denied`,
+`backend_disconnected`, `sensor_failed`, or `stale`. Once older than 2.5 seconds,
+a reading is stale; its dated value is retained in metadata/history, but its
+snapshot convenience property returns `None`. Stale EC state disables controls.
+Explicit read failures clear only the failed field. The wall-clock timestamp is
+for display; freshness uses monotonic time, independent of wall-clock changes.
+
+`GetTelemetrySnapshot() -> s` returns version-1 JSON with `timestamp`,
+`monotonic_timestamp`, `sequence`, `epoch`, `readings`, `ready`, `code`, and `message`.
+Every reading has `name`, `value`, `status`, `source`, `sampled_at`, and `error`.
+Units are Celsius, RPM, percent, and seconds; missing values are JSON `null`.
+The epoch changes on daemon restart. Decode validates schema, types, known fields,
+finite values and ranges, and a 32 KiB payload limit. The string signature keeps
+QtDBus and CLI access straightforward without custom Qt metatype registration.
+The protocol introspection and explicit routing policy include the new read method;
+all mutation authorization remains unchanged.
+
+**Client and history.** `ServiceClient.start()/stop()` owns an anchored 1000 ms
+precise Qt timer; each poll requests one snapshot asynchronously. One outstanding
+read is allowed, independently of one outstanding mutation. Pending reads age the
+last sample locally; bus failures publish missing values with disconnected/error
+status. Polling automatically recovers when a daemon reappears, including a new
+epoch. `telemetry_updated(snapshot)` is the future graph/widget event. The existing
+`snapshot_changed` signal projects the same data onto the current fan controls.
+Both engine and client retain at most 120 snapshots in memory. The client avoids
+duplicating identical daemon sequence/epoch samples in history. There is no
+telemetry persistence, database, per-sample logging, or UI redesign.
 
 ## Authoritative G3-572 hardware map
 
@@ -215,7 +299,8 @@ methods are also available for fan mode, manual speed, and RPM. CoolBoost uses
   offsets and stale readback buffers. Locks cannot serialize firmware or unrelated
   software that ignores them. Kernel/debugfs flock behavior requires device testing.
 - **Logging:** verified changes use INFO; ordinary reads are silent and implausible
-  RPM samples use DEBUG. Callers log actionable failures. Logs are not telemetry
+  Implausible RPM words produce rate-limited WARNING messages (one per channel
+  per backend instance per 60 monotonic seconds). Callers log actionable failures. Logs are not telemetry
   storage and may be under root's home for privileged launches.
 
 ## State migration and retired paths
@@ -242,9 +327,10 @@ already-running processes automatically.
 
 Diagnostics request cooling data through D-Bus and restrict their location selector
 to the seven known read locations; it is no longer a raw EC reader. Temperature
-sources are read-only sysfs data. Missing NVIDIA hwmon temperatures return
-unavailable instead of executing a privileged external tool. GUI telemetry display
-is not expanded in this phase.
+queries use the coretemp/NVML cache described above. Missing GPU support returns
+unavailable without running a telemetry subprocess. The diagnostics script still
+has its separate, explicitly requested NVIDIA command sampling. GUI telemetry
+display is not expanded in this phase.
 
 Remaining diagnostics audit work includes explicit acer_wmi/service inventory
 and narrower privacy filtering. The existing report includes cwd, UID/EUID,
@@ -253,8 +339,9 @@ zero-duration GPU sampling behavior are unchanged.
 
 PKGBUILD explicitly includes all daemon/client modules, the unprivileged launcher,
 daemon launcher, systemd unit, D-Bus activation/routing policy, and new Polkit
-action. Dependencies include python-dbus-next, dbus, and qt6-wayland; pkgrel is 2
-and `.SRCINFO` was regenerated with makepkg. The recipe still uses local source
+action. Dependencies include python-dbus-next, dbus, and qt6-wayland; the NVML
+binding is optional. Phase 3 adds all three telemetry modules, bumps pkgrel to 3,
+and regenerates `.SRCINFO` with makepkg. The recipe still uses local source
 and `url="local"`; publishing a reproducible source recipe is separate work.
 Fonts remain installed both with the app and system-wide. Diagnostics/license
 files are not installed, and the PyInstaller recipe remains outside CI.
@@ -286,6 +373,34 @@ font/asset grants and packaging of notices remain maintainer decisions. Phase 2
 does not change licensing declarations.
 
 ## Verification and remaining physical validation
+
+Local Phase 3 results: **98 tests passed on Python 3.12.14**. The three-minute
+hardware-free Qt/private-bus soak delivered **181 updates**, with a **0.998-second
+mean interval** and a **33 ms maximum Qt heartbeat gap**. History capped at **120**
+samples; the fake daemon stayed at **four threads** (main plus three workers).
+Daemon RSS went from 25,636 to 26,912 KiB as the bounded history filled. GPU status
+included 26 stale and 14 failed updates while CPU and fan data remained available.
+Ruff, Python compilation, smoke checks, shell syntax, `.SRCINFO` consistency, and
+diff whitespace checks passed. A non-installing `makepkg --nodeps -f` build of
+0.2.0-3 succeeded in `/tmp`; archive inspection confirmed the telemetry modules,
+updated bus policy, and optional NVML dependency. No installation hooks were run.
+This is simulated-source validation, not measured laptop sensor performance.
+
+Phase 3 adds hardware-free tests for variable hwmon indices/package preference,
+fallback and permission errors, absent NVML/driver, GPU loss/reinitialization,
+partial EC failures, immutable wire snapshots, stale/no-fake-zero semantics,
+bounded five-minute simulated history, drift-free deadlines, nonoverlapping
+workers, one-call Qt polling, and automatic daemon restart recovery. The optional
+`tests/telemetry_soak.py` runs the real Qt client/window and private D-Bus fixture
+for three minutes with fake GPU stalls/failures, measuring update intervals,
+Qt heartbeat gaps, bounded history, worker count, and daemon memory.
+
+Real-device Phase 3 validation still needs coretemp package-label comparison,
+GTX 1050 Ti/NVML compatibility under the installed driver and service sandbox,
+GPU sleep/disappearance/resume recovery, RPM correlation, and a multi-minute
+native Plasma Wayland session while using fan controls. Mock/private-bus results
+do not establish those hardware properties.
+
 
 Local Phase 2 results: **72 tests passed on Python 3.12.14**, including four real
 Qt/dbus-next private-bus integration cases. Ruff, compilation, smoke checks,
@@ -341,3 +456,70 @@ above remain open. No commit or release is part of this work.
   `tests/test_dbus_integration.py`, `tests/dbus_fixture.py`, `tests/test_packaging.py`,
   `.github/workflows/ci.yml`, `scripts/smoke_test.py`.
 - Documentation: `README.md`, `ARCHITECTURE.md`, `AGENTS.md`.
+
+
+## Phase 4: RPM evidence and read-only validation
+
+Rechecked 2026-09-18 against the model-specific upstream sources:
+
+- [G3-572 configuration](https://github.com/nbfc-linux/nbfc-linux/blob/main/share/nbfc/configs/Acer%20Predator%20G3-572.json):
+  word reads at CPU 19 (`0x13`) and GPU 21 (`0x15`), independent read range
+  0–6122, with control locations 55/58 (`0x37`/`0x3A`).
+- [ec_sys_linux.c](https://github.com/nbfc-linux/nbfc-linux/blob/main/src/ec_sys_linux.c):
+  `EC_SysLinux_ReadWord` reads two bytes at the register offset and applies
+  `le16toh`. The existing backend's little-endian decoding matches this behavior.
+- [fan.c](https://github.com/nbfc-linux/nbfc-linux/blob/main/src/fan.c):
+  `Fan_ECReadValue` selects word reads; `Fan_UpdateCurrentSpeed` converts the
+  configured range to a percentage. Consequently NBFC establishes a fan-speed
+  read range, not independently calibrated RPM units. No source investigated
+  proves these words are only a different scalar, either. The existing `*_fan_rpm`
+  API remains a working hypothesis and source metadata explicitly says candidate RPM.
+
+Only read semantics are adopted. NBFC's write/reset configuration, retry/clamping
+behavior, and other Acer-model registers are not imported. The backend performs
+one two-byte read per channel, accepts 0–6122 inclusive, and returns `None` for
+higher words. Short/disconnected reads retain structured errors. RPM locations
+and their adjacent high bytes remain outside the write allow-list. Invalid raw
+words are included in rate-limited warnings, without clamping or fabricated RPM.
+The shared hardware maximum also validates the telemetry wire model.
+
+Production integration uses the existing 1 Hz daemon EC worker and immutable
+snapshot. EC operations remain serialized with controls. Raw accepted words pass
+through unchanged: no conversion, rolling average, or smoothing. Failed or stale
+fields are unavailable, while valid zero stays zero. The current GUI has no RPM
+panel; the backend/client event and validation utility expose these readings.
+
+[`scripts/validate_fan_telemetry.py`](scripts/validate_fan_telemetry.py) reads cached
+snapshots from an already-running service at 1 Hz by default (configurable 1–60
+seconds, 1–3600 samples). It resolves and pins the unique bus owner, marks calls
+NO_AUTOSTART, validates exact G3-572 identity, and reports BIOS. This prevents the
+tool from activating the daemon and indirectly triggering its saved-state restore.
+It does not load modules, prepare EC, open hardware, scan addresses, invoke
+subprocesses, or send mutations. Service disappearance stops the run; rerun it
+explicitly after an independently managed restart. The daemon and GUI may perform
+authorized actions independently while observation is running.
+
+CSV includes the sample timestamp/epoch/sequence, annotation, candidate CPU/GPU
+RPM and error/status, modes, manual percentages, CoolBoost, and temperatures.
+`--label` only annotates the output. The utility applies the same freshness rule
+as the GUI and prints `Unavailable` for absent/stale values. Duplicate sequences
+are visible as repeated cached samples. No file is written unless the maintainer
+explicitly redirects stdout.
+
+Physical validation remains outstanding: on G3-572 BIOS V1.22, compare settled
+Auto, Auto + CoolBoost, Manual ~30%/50%/~70%, and Turbo observations using the GUI
+separately. Record workload and temperature alongside a trustworthy independent
+RPM reference (historical PredatorSense observations or external measurement).
+Confirm CPU/GPU channel assignment, absolute units, byte ordering against actual
+words, plausible maxima, actual stopped-fan zero if observable, and recovery after
+suspend. Never run competing EC writers to gather simultaneous reference data.
+Software fixtures establish decoding/isolation, not physical calibration.
+
+Phase 4 verification: **108 tests passed on Python 3.12.14**, including explicit
+CPU/GPU byte fixtures, zero/normal/6122/high-word boundaries, short/disconnected
+reads, write exclusion, warning rate limits, snapshot roundtrip, missing/stale
+output, and real CLI execution against an isolated private bus. The CLI's absent-
+daemon test verifies it exits instead of activating a service. Ruff, compilation,
+smoke, CLI help, and diff-whitespace checks passed. Existing Phase 3 changes were
+preserved. No live EC/NVML access, service changes, package installation, or commit
+was performed for this phase.

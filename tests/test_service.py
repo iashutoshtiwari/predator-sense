@@ -9,6 +9,7 @@ from support import BackendCase
 from core.profiles import COOLBOOST_REGISTER, FanMode
 from service.controller import Controller
 from service.daemon import ControlService, PolkitAuthorizer
+from service.telemetry_model import TelemetrySnapshot
 from service.protocol import ACTION_ID, CONTROL_METHODS, ERROR_PREFIX, INTERFACE, OBJECT_PATH, ServiceError
 
 
@@ -35,6 +36,14 @@ class ServiceTests(BackendCase, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.call("GetTemperatures"), [45000, -1])
         self.auth.authorize.assert_not_awaited()
         self.assertEqual(self.ec.writes, [])
+
+    async def test_cached_snapshot_bypasses_busy_hardware_and_never_authorizes(self):
+        async with self.service.lock:
+            result = await asyncio.wait_for(self.call("GetTelemetrySnapshot"), 0.1)
+        snapshot = TelemetrySnapshot.from_json(result[0])
+        self.assertIsNone(snapshot.cpu_temp_c)
+        self.assertEqual(self.ec.writes, [])
+        self.auth.authorize.assert_not_awaited()
 
     async def test_every_mutation_is_authorized(self):
         for name, (signature, _output) in CONTROL_METHODS.items():

@@ -9,6 +9,8 @@ from support import BackendCase
 from core.state import load_coolboost_state, save_coolboost_state
 from service.client import ServiceClient, actionable_error
 from service.protocol import ERROR_PREFIX
+from service.telemetry_model import Availability, FIELDS, TelemetrySnapshot, observed
+import time
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PyQt6 import QtCore, QtWidgets
@@ -30,7 +32,24 @@ class FakeTransport:
         if self.error:
             callback(None, *self.error)
         else:
-            callback(self.responses.get(member, []), "", "")
+            if member == "GetTelemetrySnapshot":
+                ready, code, message = self.responses["GetStatus"]
+                cpu, gpu, cp, gp = self.responses["GetFanState"]
+                boost = self.responses["GetCoolBoost"][0]
+                values = {
+                    "cpu_mode": None if cpu == "unknown" else cpu,
+                    "gpu_mode": None if gpu == "unknown" else gpu,
+                    "cpu_manual_percent": None if cp < 0 else cp,
+                    "gpu_manual_percent": None if gp < 0 else gp,
+                    "coolboost": None if boost < 0 else bool(boost),
+                }
+                snapshot = TelemetrySnapshot(
+                    time.time(), time.monotonic(), len(self.calls), "fake",
+                    tuple(observed(n, values.get(n), "fake") for n in FIELDS), ready, code, message,
+                )
+                callback([snapshot.to_json()], "", "")
+            else:
+                callback(self.responses.get(member, []), "", "")
 
 
 class ClientWindowTests(BackendCase):
@@ -42,6 +61,7 @@ class ClientWindowTests(BackendCase):
         super().setUp()
         self.transport = FakeTransport()
         self.client = ServiceClient(transport=self.transport)
+        self.addCleanup(self.client.stop)
 
     def window(self):
         window = MainWindow(self.client)
@@ -52,7 +72,7 @@ class ClientWindowTests(BackendCase):
     def test_read_only_startup_and_client_api(self):
         window = self.window()
         self.assertTrue(window.cpu_auto.isChecked())
-        self.assertEqual(self.transport.calls, [("GetStatus", []), ("GetFanState", []), ("GetCoolBoost", [])])
+        self.assertEqual(self.transport.calls, [("GetTelemetrySnapshot", [])])
         for function, args, method in (
             (self.client.set_cpu_mode, ["turbo"], "SetCpuFanMode"),
             (self.client.set_gpu_mode, ["auto"], "SetGpuFanMode"),
@@ -134,7 +154,57 @@ class ClientWindowTests(BackendCase):
         pending[0][1]([True, "", ""], "", "")
         self.assertFalse(self.client.snapshot["ready"])
         pending[1][1]([], "", "")
-        self.assertEqual(pending[2][0], "GetStatus")
+        self.assertEqual(pending[2][0], "GetTelemetrySnapshot")
+
+    def test_one_snapshot_call_per_poll_and_bounded_client_history(self):
+        updates = []
+        self.client.telemetry_updated.connect(updates.append)
+        for _ in range(300):
+            self.client.refresh()
+        self.assertEqual(len(updates), 300)
+        self.assertEqual(len(self.client.history), 120)
+        self.assertEqual(len(self.transport.calls), 300)
+        self.assertTrue(all(name == "GetTelemetrySnapshot" for name, _ in self.transport.calls))
+        self.assertIsNone(updates[-1].gpu_temp_c)
+
+    def test_pending_read_is_not_duplicated_and_old_values_expire(self):
+        self.client.refresh()
+        pending = []
+        self.transport.call = lambda member, args, callback: pending.append(callback)
+        self.client.refresh()
+        with patch("service.client.time.monotonic", return_value=time.monotonic() + 4):
+            for _ in range(10):
+                self.client.refresh()
+        self.assertEqual(len(pending), 1)
+        self.assertFalse(self.client.snapshot["ready"])
+        self.assertEqual(self.client.telemetry.reading("cpu_mode").status, Availability.STALE)
+        self.assertIsNone(self.client.telemetry.cpu_mode)
+
+    def test_disconnected_values_are_none_and_polling_continues_during_authorization(self):
+        self.transport.error = ("org.freedesktop.DBus.Error.ServiceUnknown", "missing")
+        self.client.refresh()
+        self.assertTrue(all(r.value is None for r in self.client.telemetry.readings))
+        self.assertEqual(self.client.telemetry.reading("cpu_temp_c").status, Availability.BACKEND_DISCONNECTED)
+        self.transport.error = None
+        self.client.busy = True
+        self.client.refresh()
+        self.assertTrue(self.client.snapshot["ready"])
+        self.assertTrue(self.client.busy)
+
+    def test_malformed_snapshot_is_reported_without_crashing(self):
+        self.transport.call = lambda member, args, callback: callback(["null"], "", "")
+        self.client.refresh()
+        self.assertEqual(self.client.snapshot["code"], "InvalidReply")
+        self.assertFalse(self.client.refreshing)
+        self.assertIsNone(self.client.telemetry.cpu_fan_rpm)
+
+    def test_refresh_does_not_reset_pending_slider_choice(self):
+        self.transport.responses["GetFanState"] = ["manual", "auto", 50, 50]
+        window = self.window()
+        window.verticalSlider.setValue(8)
+        self.client.refresh()
+        self.assertEqual(window.verticalSlider.value(), 8)
+        self.assertTrue(window.manual_timers["cpu"].isActive())
 
 
 class StateDiagnosticsTests(BackendCase):

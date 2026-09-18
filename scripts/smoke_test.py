@@ -5,6 +5,7 @@ import pathlib
 def main():
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     required = [
+        repo_root / "scripts" / "validate_fan_telemetry.py",
         repo_root / "src" / "main.py",
         repo_root / "src" / "daemon_main.py",
         repo_root / "src" / "frontend.py",
@@ -20,6 +21,9 @@ def main():
         repo_root / "src" / "service" / "client.py",
         repo_root / "src" / "service" / "protocol.py",
         repo_root / "src" / "service" / "controller.py",
+        repo_root / "src" / "service" / "telemetry_model.py",
+        repo_root / "src" / "service" / "sensors.py",
+        repo_root / "src" / "service" / "telemetry.py",
         repo_root / "packaging" / "io.github.iashutoshtiwari.PredatorSense.conf",
         repo_root / "packaging" / "io.github.iashutoshtiwari.predatorsense.policy",
         repo_root / "PKGBUILD",

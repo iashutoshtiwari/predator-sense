@@ -9,12 +9,12 @@ app, not a web app or an installable Python package. Runtime dependencies includ
 PyQt6, Python, dbus-next, D-Bus, polkit, and Qt Wayland; see `requirements.txt` and `PKGBUILD`.
 
 Features currently implemented: CPU/GPU Auto, Manual, and Turbo fan modes,
-global Auto/Turbo controls, and persistent CoolBoost. Diagnostics can inspect
+global Auto/Turbo controls, persistent CoolBoost, and daemon-side 1 Hz telemetry. Diagnostics can inspect
 NVIDIA tools; the backend exposes candidate fan RPM reads, but there is no live
 telemetry display or GPU overclocking feature.
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) for the audited runtime and packaging,
-G3-572 hardware evidence, Phase 2 daemon/client contract, and remaining audit risks.
+G3-572 hardware evidence, Phase 2 daemon/client contract, Phase 3 telemetry, and remaining audit risks.
 It distinguishes implemented safeguards from outstanding physical validation. Keep it current when changing the architecture or hardware contract.
 
 ## Where to work
@@ -31,12 +31,15 @@ It distinguishes implemented safeguards from outstanding physical validation. Ke
 | `src/core/logger.py` | Console logging and rotating file logs. |
 | `src/font_config.py`, `fonts/` | Bundled Squares font registration and QFont helpers. |
 | `src/daemon_main.py`, `src/service/daemon.py` | Root entry point, system bus ownership, Polkit checks, serialized requests. |
-| `src/service/controller.py` | Daemon operations, one-time saved CoolBoost restore, read-only temperatures. |
+| `src/service/controller.py` | Daemon operations, one-time saved CoolBoost restore, serialized EC sampling. |
 | `src/service/protocol.py`, `src/service/client.py` | Stable wire contract and asynchronous unprivileged Qt client. |
+| `src/service/telemetry_model.py` | Immutable snapshots, per-sensor status/freshness, versioned JSON wire schema. |
+| `src/service/sensors.py`, `src/service/telemetry.py` | Daemon-only coretemp/NVML sources, isolated bounded workers, monotonic 1 Hz sampling. |
 | `packaging/`, `predator-sense.install` | Launchers, desktop entry, polkit policy, systemd unit, package lifecycle hooks. |
 | `PKGBUILD`, `.SRCINFO` | Arch package recipe and metadata. |
 | `tests/` | Hardware-free backend, controller, service, and diagnostics checks using unittest. |
 | `scripts/smoke_test.py` | Required-file presence check only. |
+| `scripts/validate_fan_telemetry.py` | Read-only cached RPM validation; no daemon activation, modes changed separately in GUI. |
 | `scripts/collect_diagnostics.py` | Read-only system/EC diagnostics, written to a report file. |
 | `.github/workflows/ci.yml`, `pyproject.toml` | Authoritative CI commands and Ruff configuration. |
 
@@ -56,6 +59,11 @@ unrelated local work.
   return `FanMode.UNKNOWN`, unknown CoolBoost/manual control and implausible RPM
   return `None`. Zero is valid. Writes are allow-listed, skip unchanged bytes,
   and verify readback. Manual mode plus its control write share a transaction.
+- RPM words at CPU `0x13` and GPU `0x15` are read-only, little-endian,
+  unsmoothed candidate RPM. Reject values above 6122, preserving legitimate zero.
+  Implausible reads warn at most once per channel per backend instance per 60
+  seconds. The validation script pins an existing D-Bus owner and uses
+  NO_AUTOSTART; do not let validation activate startup CoolBoost restoration.
 - Sliders map levels 0–10 to percentages 0–100 using `level * 10`. Preserve this
   mapping; the backend rejects non-integer inputs and clamps integer percentages.
 - MainWindow receives `ServiceClient`, never a hardware backend. GUI modules must
@@ -64,6 +72,15 @@ unrelated local work.
 - GUI tests inject a fake client/transport. Backend tests redirect DMI, EC paths,
   state and logging through `tests/support.py`. Offscreen Qt alone is not hardware
   isolation. Use `PYTHONPATH=src` for repository-root tests.
+- Telemetry uses one cached `GetTelemetrySnapshot()` call per client poll. Keep
+  sampling in the daemon and the timer/history in `ServiceClient`, never widgets.
+  CPU/GPU/EC workers each allow one pending read. Preserve monotonic deadlines,
+  120-snapshot history bounds, per-sensor errors, and 2.5-second freshness checks.
+  Never substitute zero for unavailable readings or write telemetry to disk.
+- CPU discovery matches hwmon `name=coretemp`, prefers `Package id 0`, then the
+  hottest readable coretemp input. GPU uses optional `nvidia-ml-py`/`pynvml` with
+  five-second failure retry; no per-second `sensors` or `nvidia-smi` subprocess.
+  Tests inject NVML and sysfs sources; never initialize real NVML for validation.
 - Only the daemon writes `/var/lib/predator-sense/state.json`, preserving the
   `coolboost_enabled` boolean key. It restores valid existing state once at startup;
   missing/malformed state and unknown EC state do not trigger restoration. The old
@@ -98,7 +115,7 @@ The existing CI checks are:
 
 ```bash
 ruff check .
-python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py src/service/*.py src/daemon_main.py scripts/smoke_test.py scripts/collect_diagnostics.py
+python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py src/service/*.py src/daemon_main.py scripts/smoke_test.py scripts/collect_diagnostics.py scripts/validate_fan_telemetry.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 python scripts/smoke_test.py
 test -f PKGBUILD
@@ -119,6 +136,8 @@ is needed. The smoke test checks file presence only. Report static checks and
 mocked behavior separately; neither proves physical hardware behavior. Private-bus
 tests start only an isolated dbus-daemon with fake EC and fake Polkit, never the
 production daemon/system bus. Real Plasma/Polkit-agent behavior remains a device check.
+`tests/telemetry_soak.py` is an opt-in three-minute Qt/private-bus run with fake
+sensors, including stalled/failing GPU reads; it never uses the production bus.
 
 ## Editing conventions
 

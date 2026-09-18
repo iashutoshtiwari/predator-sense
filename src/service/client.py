@@ -1,8 +1,13 @@
 """Asynchronous Qt system-bus client. Never imports the hardware implementation."""
 
+from collections import deque
+import math
+import time
+
 from PyQt6 import QtCore, QtDBus
 
 from service.protocol import BUS_NAME, CONTROL_METHODS, ERROR_PREFIX, INTERFACE, METHODS, OBJECT_PATH
+from service.telemetry_model import Availability, HISTORY_LIMIT, INTERVAL, TelemetrySnapshot
 
 
 class QtBusTransport(QtCore.QObject):
@@ -56,6 +61,7 @@ def actionable_error(name, message):
 
 
 class ServiceClient(QtCore.QObject):
+    telemetry_updated = QtCore.pyqtSignal(object)
     snapshot_changed = QtCore.pyqtSignal(object)
     busy_changed = QtCore.pyqtSignal(bool)
     failed = QtCore.pyqtSignal(str, str)
@@ -67,66 +73,82 @@ class ServiceClient(QtCore.QObject):
         self.generation = 0
         self.refreshing = False
         self.snapshot = {"ready": False, "code": "Starting", "message": "Connecting to predator-sensed…"}
+        self.telemetry = TelemetrySnapshot.empty()
+        self.history = deque(maxlen=HISTORY_LIMIT)
+        self.timer = QtCore.QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setTimerType(QtCore.Qt.TimerType.PreciseTimer)
+        self.timer.timeout.connect(self._poll)
+        self.running = False
+        self.deadline = 0.0
+
+    def start(self):
+        if not self.running:
+            self.running = True
+            self.deadline = time.monotonic()
+            self.timer.start(0)
+
+    def stop(self):
+        self.running = False
+        self.timer.stop()
+
+    def _poll(self):
+        if not self.running:
+            return
+        self.refresh()
+        now = time.monotonic()
+        self.deadline += max(1, math.floor((now - self.deadline) / INTERVAL) + 1) * INTERVAL
+        self.timer.start(max(1, math.ceil((self.deadline - now) * 1000)))
+
+    def _publish_telemetry(self, snapshot):
+        self.telemetry = snapshot.aged(time.monotonic())
+        if not self.history or (snapshot.epoch, snapshot.sequence) != (
+            self.history[-1].epoch, self.history[-1].sequence
+        ) or not snapshot.epoch:
+            self.history.append(self.telemetry)
+        self.telemetry_updated.emit(self.telemetry)
+        state = {"ready": self.telemetry.ready, "code": self.telemetry.code, "message": self.telemetry.message}
+        for name in ("cpu_mode", "gpu_mode"):
+            state[name] = self.telemetry.value(name) or "unknown"
+        for name in ("cpu", "gpu"):
+            value = self.telemetry.value(name + "_manual_percent")
+            state[name + "_manual"] = -1 if value is None else value
+        value = self.telemetry.coolboost
+        state["coolboost"] = -1 if value is None else int(value)
+        self._publish(state)
 
     def _publish(self, state):
         self.snapshot = state
         self.snapshot_changed.emit(state)
 
     def refresh(self):
-        if self.busy or self.refreshing:
+        if self.refreshing:
+            # A pending call never creates another call. Age the last sample so a
+            # wedged daemon cannot leave fresh-looking controls enabled forever.
+            self._publish_telemetry(self.telemetry)
             return
         self.refreshing = True
         generation = self.generation
 
-        def stale():
-            if generation == self.generation:
-                return False
+        def done(values, name, message):
             self.refreshing = False
-            if not self.busy:
-                self.refresh()
-            return True
-
-        def failure(name, message):
-            self.refreshing = False
+            if generation != self.generation:
+                return
+            if not name:
+                try:
+                    snapshot = TelemetrySnapshot.from_json(values[0])
+                except (ValueError, TypeError, IndexError):
+                    name, message = ERROR_PREFIX + "InvalidReply", "Invalid telemetry response; update the daemon"
+                else:
+                    self._publish_telemetry(snapshot)
+                    return
             code, text = actionable_error(name, message)
-            self._publish({"ready": False, "code": code, "message": text})
+            status = (Availability.SENSOR_FAILED if code == "InvalidReply" else
+                      Availability.PERMISSION_DENIED if name.endswith("AccessDenied") else
+                      Availability.BACKEND_DISCONNECTED)
+            self._publish_telemetry(TelemetrySnapshot.empty(status=status, code=code, message=text))
 
-        def status_done(values, name, message):
-            if stale():
-                return
-            if name:
-                failure(name, message)
-                return
-            ready, code, text = values
-            if not ready:
-                self.refreshing = False
-                self._publish({"ready": False, "code": code, "message": text})
-                return
-            state = {"ready": True, "code": "", "message": text}
-
-            def fans_done(fans, name, message):
-                if stale():
-                    return
-                if name:
-                    failure(name, message)
-                    return
-                state.update(zip(("cpu_mode", "gpu_mode", "cpu_manual", "gpu_manual"), fans))
-
-                def boost_done(boost, name, message):
-                    if stale():
-                        return
-                    if name:
-                        failure(name, message)
-                        return
-                    state["coolboost"] = boost[0]
-                    self.refreshing = False
-                    self._publish(state)
-
-                self.transport.call("GetCoolBoost", [], boost_done)
-
-            self.transport.call("GetFanState", [], fans_done)
-
-        self.transport.call("GetStatus", [], status_done)
+        self.transport.call("GetTelemetrySnapshot", [], done)
 
     def _mutate(self, method, *args):
         if self.busy:
@@ -140,7 +162,8 @@ class ServiceClient(QtCore.QObject):
             self.busy_changed.emit(False)
             if name:
                 self.failed.emit(*actionable_error(name, message))
-            self.refresh()
+            if not self.running:
+                self.refresh()
 
         self.transport.call(method, list(args), complete)
 

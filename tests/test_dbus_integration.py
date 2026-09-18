@@ -39,6 +39,8 @@ class PrivateBusTests(unittest.TestCase):
         self.assertTrue(self.connection.isConnected())
         self.transport = QtBusTransport(connection=self.connection)
         self.client = ServiceClient(transport=self.transport)
+        self.client.start()
+        self.addCleanup(self.client.stop)
 
     @staticmethod
     def stop_process(process):
@@ -49,10 +51,10 @@ class PrivateBusTests(unittest.TestCase):
             process.kill()
             process.communicate()
 
-    def start_fixture(self, authorization="allow"):
+    def start_fixture(self, authorization="allow", *, stress=False):
         fixture = Path(__file__).with_name("dbus_fixture.py")
         process = subprocess.Popen(
-            [sys.executable, str(fixture), self.address, authorization],
+            [sys.executable, str(fixture), self.address, authorization] + (["stress"] if stress else []),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -108,6 +110,27 @@ class PrivateBusTests(unittest.TestCase):
         self.client.refresh()
         self.wait_until(lambda: not self.client.refreshing)
         self.assertFalse(self.client.snapshot["ready"])
+        old_epoch = next(s.epoch for s in self.client.history if s.epoch)
+        self.start_fixture()
+        # Recovery uses the client's own polling loop, no manual refresh.
+        self.wait_until(lambda: self.client.snapshot.get("ready"))
+        self.assertNotEqual(self.client.telemetry.epoch, old_epoch)
+        self.assertEqual(self.client.telemetry.cpu_temp_c, 44.0)
+        self.assertIsNone(self.client.telemetry.gpu_temp_c)
+
+    def test_validation_cli_on_private_bus_and_absent_daemon(self):
+        script = Path(__file__).resolve().parent.parent / "scripts/validate_fan_telemetry.py"
+        environment = {**os.environ, "DBUS_SYSTEM_BUS_ADDRESS": self.address}
+        command = [sys.executable, str(script), "--samples", "1", "--label", "auto"]
+        absent = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=6)
+        self.assertEqual(absent.returncode, 1)
+        self.assertIn("no activation attempted", absent.stderr)
+        self.start_fixture()
+        result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=6)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cpu_candidate_rpm_0x13", result.stdout)
+        self.assertIn("V1.22", result.stderr)
+        self.assertIn("Unavailable", result.stdout)  # fixture has no GPU temperature
 
     def test_unknown_and_wrongly_typed_wire_calls_are_rejected(self):
         self.start_fixture()

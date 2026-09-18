@@ -25,7 +25,7 @@ jobs:
         run: ruff check .
 
       - name: Python compile check
-        run: python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py src/service/*.py src/daemon_main.py scripts/smoke_test.py scripts/collect_diagnostics.py
+        run: python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py src/service/*.py src/daemon_main.py scripts/smoke_test.py scripts/collect_diagnostics.py scripts/validate_fan_telemetry.py
 
       - name: Hardware-free behavioral tests
         env:
