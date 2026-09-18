@@ -594,9 +594,9 @@ No transitions, timer animations, widget-tree rebuilds, plotting frameworks,
 webviews, QML, or unrelated features are introduced.
 
 Colors, stylesheet, spacing, and desktop ID are centralized in `ui/theme.py`.
-`font_config.py` loads the open-source geometric typeface Turret Road (SIL Open
-Font License 1.1) bundled under `assets/fonts/` with graceful fallback to system
-UI/monospace fonts. The new SVG is an original geometric thermal-control
+`font_config.py` loads the open-source geometric typeface Orbitron for UI and
+JetBrains Mono for numbers (both SIL Open Font License 1.1) bundled under
+`assets/fonts/` with graceful fallback to system UI/monospace fonts. The new SVG is an original geometric thermal-control
 mark, not a copied Acer logo.
 
 Qt application name/desktopFileName, installed desktop filename, StartupWMClass,
@@ -688,7 +688,7 @@ ownership, permissions, and bytecode compilation.
   `StartupWMClass=io.github.iashutoshtiwari.PredatorSense`, and `Categories=System;Settings;`.
 - Scalable vector icon installed to `/usr/share/icons/hicolor/scalable/apps/`.
 - No forced XCB platform (`QT_QPA_PLATFORM=xcb` is never exported); native Wayland sessions are preserved.
-- The UI bundles the open-source Turret Road font (SIL OFL 1.1) under `assets/fonts/` with system fallback.
+- The UI bundles the open-source Orbitron and JetBrains Mono fonts (SIL OFL 1.1) under `assets/fonts/` with system fallback.
 
 ### Installation verification and state lifecycle
 

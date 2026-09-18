@@ -12,7 +12,10 @@ def check(path):
         assert "predator_sense/assets/predator-sense.svg" in names
         assert "predator_sense/install_check.py" in names
         assert all(name.startswith("predator_sense/") or ".dist-info/" in name for name in names)
-        assert "predator_sense/assets/fonts/TurretRoad-Regular.ttf" in names
+        assert "predator_sense/assets/fonts/Orbitron-Regular.ttf" in names
+        assert "predator_sense/assets/fonts/Orbitron-Bold.ttf" in names
+        assert "predator_sense/assets/fonts/JetBrainsMono-Regular.ttf" in names
+        assert "predator_sense/assets/fonts/JetBrainsMono-Bold.ttf" in names
         assert not any(name.endswith((".otf", ".ico")) for name in names)
         root = Path(__file__).resolve().parent.parent / "src"
         expected = {str(p.relative_to(root)) for p in (root / "predator_sense").rglob("*.py")}

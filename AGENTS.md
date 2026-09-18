@@ -31,7 +31,7 @@ It distinguishes implemented safeguards from outstanding physical validation. Ke
 | `src/predator_sense/core/env_checks.py` | Exact normalized DMI identity gate and daemon-only bounded startup EC preparation. |
 | `src/predator_sense/core/errors.py`, `src/predator_sense/core/state.py` | Structured hardware failures and atomic cooling-state persistence. |
 | `src/predator_sense/core/logger.py` | Console logging and rotating file logs. |
-| `src/predator_sense/font_config.py` | System UI and numeric font helpers; no bundled font registration. |
+| `src/predator_sense/font_config.py` | System UI (Orbitron) and numeric (JetBrains Mono) font helpers with system fallback. |
 | `src/predator_sense/ui/theme.py`, `src/predator_sense/ui/instruments.py` | Central theme/desktop identity, passive telemetry cards, QPainter graphs and CoolBoost switch. |
 | `src/predator_sense/daemon_main.py`, `src/predator_sense/service/daemon.py` | Root entry point, system bus ownership, Polkit checks, serialized requests. |
 | `src/predator_sense/service/lifecycle.py` | Trusted logind sleep signals, serialized recovery and bounded health retry rate. |
@@ -158,7 +158,7 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
 - `frontend.py` is now hand-maintained and uses Qt layouts. Keep it presentation-only;
   graphs/cards consume snapshots/history, never poll or import hardware.
 - Use `ui/theme.py` for colors and desktop identity. UI fonts use the bundled
-  open-source Turret Road font (SIL OFL 1.1) with system fallback.
+  open-source Orbitron (UI) and JetBrains Mono (numeric) fonts (SIL OFL 1.1) with system fallback.
 - Radio-button `toggled` fires on both selection and deselection. The controller
   uses `clicked` for hardware actions and blocks signals while refreshing observed
   state. Preserve zero-write startup and test global/individual transitions.
