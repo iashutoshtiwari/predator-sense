@@ -47,6 +47,7 @@ def main():
         if scenario == "authentication":
             client.busy = True
             client.busy_changed.emit(True)
+            window.busy_timer.timeout.emit()
         for _ in range(3):
             app.processEvents()
         window.grab().save(str(output / (scenario + ".png")))

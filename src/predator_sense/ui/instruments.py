@@ -6,6 +6,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 from predator_sense.core.profiles import FAN_RPM_MAX
 from predator_sense.font_config import font_numeric, font_ui
+from predator_sense.ui.system_info import get_cpu_model, get_gpu_model
 from predator_sense.ui.theme import THEME
 
 
@@ -114,7 +115,10 @@ class TelemetryCard(QtWidgets.QFrame):
         layout.setSpacing(8)
         heading = QtWidgets.QHBoxLayout()
         heading.addWidget(label(channel.upper(), size=13, bold=True))
-        heading.addWidget(label("PROCESSOR" if channel == "cpu" else "GRAPHICS", role="muted", size=9))
+        device_name = get_cpu_model() if channel == "cpu" else get_gpu_model()
+        self.device_name_label = label(device_name, role="muted", size=9)
+        self.device_name_label.setToolTip(device_name)
+        heading.addWidget(self.device_name_label)
         heading.addStretch()
         self.mode = label("—", role="accent", size=9, bold=True)
         heading.addWidget(self.mode)
@@ -137,7 +141,8 @@ class TelemetryCard(QtWidgets.QFrame):
         fan.addWidget(unit)
         readings.addLayout(fan)
         layout.addLayout(readings)
-        self.availability = label("Waiting for telemetry", role="muted", size=9)
+        self.availability = label("", role="muted", size=9)
+        self.availability.setVisible(False)
         self.availability.setWordWrap(True)
         layout.addWidget(self.availability)
         self.graphs = []
@@ -175,7 +180,8 @@ class TelemetryCard(QtWidgets.QFrame):
                 )
                 messages.append(f"{title}: {status}")
             details.append(f"{title}: {reading.source or 'No source'}\n{reading.error}")
-        set_text(self.availability, " · ".join(messages) if messages else "LIVE / 1 Hz")
+        set_text(self.availability, " · ".join(messages) if messages else "")
+        self.availability.setVisible(bool(messages))
         self.availability.setToolTip("\n".join(details))
         temperature_description = temp if temp is not None else "unavailable"
         self.temperature.setAccessibleName(f"{self.channel.upper()} temperature {temperature_description}")

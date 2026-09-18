@@ -106,6 +106,7 @@ class DashboardTests(unittest.TestCase):
     def test_outage_and_authentication_keep_actionable_banner(self):
         self.client.busy = True
         self.client.busy_changed.emit(True)
+        self.window.busy_timer.timeout.emit()
         self.assertTrue(self.window.notice.isVisible())
         self.assertIn("authorization", self.window.status_label.text())
         self.client.busy = False

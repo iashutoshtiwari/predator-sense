@@ -34,6 +34,11 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
         )
         self.exit_button.clicked.connect(self.close)
         self.retry_button.clicked.connect(self._retry)
+        self.busy_timer = QtCore.QTimer(self)
+        self.busy_timer.setSingleShot(True)
+        self.busy_timer.setInterval(250)
+        self.busy_timer.timeout.connect(self._on_busy_timeout)
+        self.busy_prompt = False
         self.client.telemetry_updated.connect(self._telemetry_updated)
         self.client.snapshot_changed.connect(self._render)
         self.client.busy_changed.connect(self._busy_changed)
@@ -69,32 +74,36 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
                 mode = state.get(channel + "_mode", "unknown")
                 percent = state.get(channel + "_manual", -1)
                 modes.append(mode)
-                self._select(
-                    (auto, manual, turbo),
-                    {
-                        "auto": auto,
-                        "firmware_auto": auto,
-                        "manual": manual,
-                        "turbo": turbo,
-                    }.get(mode),
-                )
-                if percent >= 0 and not self.manual_timers[channel].isActive() and not slider.isSliderDown():
-                    slider.setValue((percent + 5) // 10)
-                slider.setEnabled(enabled and mode == "manual" and percent >= 0)
-                if not self.manual_timers[channel].isActive() and not slider.isSliderDown():
-                    set_text(self.percent_labels[channel], "—" if percent < 0 else f"{percent}%")
-            global_selected = None
-            if all(mode in ("auto", "firmware_auto") for mode in modes):
-                global_selected = self.global_auto
-            elif all(mode == "turbo" for mode in modes):
-                global_selected = self.global_turbo
-            self._select((self.global_auto, self.global_turbo), global_selected)
+                if not self.client.busy:
+                    self._select(
+                        (auto, manual, turbo),
+                        {
+                            "auto": auto,
+                            "firmware_auto": auto,
+                            "manual": manual,
+                            "turbo": turbo,
+                        }.get(mode),
+                    )
+                    if percent >= 0 and not self.manual_timers[channel].isActive() and not slider.isSliderDown():
+                        slider.setValue((percent + 5) // 10)
+                    slider.setEnabled(enabled and mode == "manual" and percent >= 0)
+                    if not self.manual_timers[channel].isActive() and not slider.isSliderDown():
+                        set_text(self.percent_labels[channel], "—" if percent < 0 else f"{percent}%")
+                else:
+                    slider.setEnabled(False)
             boost = state.get("coolboost", -1)
-            self.coolboost_checkbox.setTristate(boost < 0)
-            if boost < 0:
-                self.coolboost_checkbox.setCheckState(QtCore.Qt.CheckState.PartiallyChecked)
-            else:
-                self.coolboost_checkbox.setChecked(bool(boost))
+            if not self.client.busy:
+                global_selected = None
+                if all(mode in ("auto", "firmware_auto") for mode in modes):
+                    global_selected = self.global_auto
+                elif all(mode == "turbo" for mode in modes):
+                    global_selected = self.global_turbo
+                self._select((self.global_auto, self.global_turbo), global_selected)
+                self.coolboost_checkbox.setTristate(boost < 0)
+                if boost < 0:
+                    self.coolboost_checkbox.setCheckState(QtCore.Qt.CheckState.PartiallyChecked)
+                else:
+                    self.coolboost_checkbox.setChecked(bool(boost))
             automatic = any(mode in ("auto", "firmware_auto") for mode in modes)
             self.coolboost_checkbox.setEnabled(enabled and automatic and boost >= 0)
             set_text(self.boost_state, "UNKNOWN" if boost < 0 else "ON" if boost else "OFF")
@@ -103,17 +112,19 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
             text = state.get("message") or "Connected to predator-sensed"
             if ready and self.last_error:
                 text = self.last_error
-            if self.client.busy:
+            busy_prompt = self.client.busy and self.busy_prompt
+            if busy_prompt:
                 text = "Applying change… Complete the authorization dialog if prompted."
             connected = bool(self.client.telemetry.epoch)
             set_role(self.connection_badge, "badge" if ready and not self.client.busy else "badgeWarn")
             set_text(self.connection_badge, "AUTHORIZATION / APPLYING" if self.client.busy else
-                     "LIVE / 1 Hz" if ready else "CONNECTING" if state.get("code") == "Starting" else
+                     "CONNECTED" if ready else "CONNECTING" if state.get("code") == "Starting" else
                      "SERVICE ATTENTION" if connected else "OFFLINE")
             set_text(self.daemon_status, "DAEMON CONNECTED" if connected else "DAEMON OFFLINE")
             set_text(self.ec_status, "EC AVAILABLE" if ready else
                      "EC WAITING" if state.get("code") == "Starting" else "EC UNAVAILABLE")
-            self.notice.setVisible(not ready or bool(self.last_error) or self.client.busy or bool(state.get("message")))
+            show_notice = not ready or bool(self.last_error) or busy_prompt or bool(state.get("message"))
+            self.notice.setVisible(show_notice)
             self.retry_button.setVisible(not ready and not self.client.busy)
             set_text(self.status_label, text)
             self.status_label.setToolTip(text)
@@ -166,7 +177,18 @@ class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):
         if not slider.isSliderDown():
             self.manual_timers[channel].start()
 
-    def _busy_changed(self, _busy):
+    def _on_busy_timeout(self):
+        if self.client.busy:
+            self.busy_prompt = True
+            self._render(self.client.snapshot)
+
+    def _busy_changed(self, busy):
+        if busy:
+            self.busy_prompt = False
+            self.busy_timer.start()
+        else:
+            self.busy_timer.stop()
+            self.busy_prompt = False
         self._render(self.client.snapshot)
 
     def _failed(self, _code, message):

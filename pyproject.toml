@@ -35,4 +35,4 @@ predator-sense-diagnostics = "predator_sense.diagnostics:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-predator_sense = ["assets/*.svg", "assets/fonts/*.ttf", "assets/fonts/*.txt"]
+predator_sense = ["assets/*.svg", "assets/*.png", "assets/fonts/*.ttf", "assets/fonts/*.txt"]
