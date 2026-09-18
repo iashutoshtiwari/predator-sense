@@ -4,7 +4,7 @@ from dataclasses import replace
 import math
 import time
 
-from service.telemetry_model import FIELDS, TelemetrySnapshot, observed
+from predator_sense.service.telemetry_model import FIELDS, TelemetrySnapshot, observed
 
 
 def samples(count=60):

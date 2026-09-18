@@ -10,10 +10,10 @@ from pathlib import Path
 import threading
 import time
 
-from core.env_checks import get_hardware_identity, require_supported_identity
-from core.errors import ErrorCode, HardwareError
-from core.logger import get_logger
-from core.profiles import (
+from predator_sense.core.env_checks import get_hardware_identity, require_supported_identity
+from predator_sense.core.errors import ErrorCode, HardwareError
+from predator_sense.core.logger import get_logger
+from predator_sense.core.profiles import (
     BYTE_READ_REGISTERS,
     CONTROL_REGISTERS,
     COOLBOOST_OFF,

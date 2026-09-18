@@ -13,10 +13,10 @@ import unittest
 from dbus_next import MessageFlag, MessageType
 
 from support import BackendCase
-from core.errors import ErrorCode
-from core.profiles import FanChannel, RPM_REGISTERS
-from service.controller import Controller
-from service.telemetry_model import FIELDS, TelemetrySnapshot, observed
+from predator_sense.core.errors import ErrorCode
+from predator_sense.core.profiles import FanChannel, RPM_REGISTERS
+from predator_sense.service.controller import Controller
+from predator_sense.service.telemetry_model import FIELDS, TelemetrySnapshot, observed
 
 spec = importlib.util.spec_from_file_location(
     "validate_fan_telemetry", Path(__file__).resolve().parent.parent / "scripts/validate_fan_telemetry.py"
@@ -59,8 +59,8 @@ class RpmTests(BackendCase):
         for channel in FanChannel:
             address = RPM_REGISTERS[channel]
             self.ec.data[address:address + 2] = b"\xff\xff"
-        with patch("core.hardware.time.monotonic", return_value=100) as clock, \
-                patch("core.hardware.logger.warning") as warning:
+        with patch("predator_sense.core.hardware.time.monotonic", return_value=100) as clock, \
+                patch("predator_sense.core.hardware.logger.warning") as warning:
             for _ in range(60):
                 for channel in FanChannel:
                     self.assertIsNone(self.backend.get_fan_rpm(channel))

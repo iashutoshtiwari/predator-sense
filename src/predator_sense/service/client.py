@@ -6,8 +6,8 @@ import time
 
 from PyQt6 import QtCore, QtDBus
 
-from service.protocol import BUS_NAME, CONTROL_METHODS, ERROR_PREFIX, INTERFACE, METHODS, OBJECT_PATH
-from service.telemetry_model import Availability, HISTORY_LIMIT, INTERVAL, TelemetrySnapshot
+from predator_sense.service.protocol import BUS_NAME, CONTROL_METHODS, ERROR_PREFIX, INTERFACE, METHODS, OBJECT_PATH
+from predator_sense.service.telemetry_model import Availability, HISTORY_LIMIT, INTERVAL, TelemetrySnapshot
 
 
 class QtBusTransport(QtCore.QObject):

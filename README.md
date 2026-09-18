@@ -18,17 +18,27 @@ No other Acer model is supported.
 
 ## Install and run
 
-Build/install with Arch's usual package workflow:
+Build and install using Arch's package workflow:
 
 ```bash
+# From a local git checkout, prepare the release source archive once:
+python scripts/prepare_arch_source.py
 makepkg -si
+
+# Enable and start the system hardware service (Arch user-driven service convention):
+systemctl enable --now predator-sensed.service
+
+# Verify installation health without writing fan values:
+predator-sense-check
+
+# Launch the GUI:
 predator-sense
 ```
 
-Installation requires administrator privileges through the package manager and
-enables the root hardware service. Run the GUI **without sudo or pkexec**. It
-refuses root launches. The launcher preserves your session environment: Qt uses
-Wayland on a Wayland session and X11 on an X11 session. The package includes
+Installation requires administrator privileges through the package manager. Following Arch
+packaging conventions, service activation is explicitly user-managed. Run the GUI
+**without sudo or pkexec**. It refuses root launches. The launcher preserves your session
+environment: Qt uses Wayland on a Wayland session and X11 on an X11 session. The package includes
 `qt6-wayland`; no platform override is applied.
 
 Runtime packages: `python`, `python-pyqt6`, `python-dbus-next`, `polkit`, `dbus`,
@@ -50,7 +60,7 @@ With the matching packaged daemon/D-Bus policy already installed:
 
 ```bash
 python -m pip install -r requirements.txt
-python src/main.py
+PYTHONPATH=src python -m predator_sense.main
 ```
 
 Installing Python dependencies alone does not install the system service, bus
@@ -186,7 +196,7 @@ The unresolved license and asset provenance findings are recorded in ARCHITECTUR
 ### Cooling state and service lifecycle
 
 The system daemon runs independently of the GUI and is enabled at boot by the
-Arch package hooks. Verified CPU/GPU modes, applicable manual percentages and
+administrator (`systemctl enable --now predator-sensed.service`). Verified CPU/GPU modes, applicable manual percentages and
 CoolBoost are saved atomically under `/var/lib/predator-sense/`.
 Fresh or invalid settings select explicit Auto for both fans and CoolBoost Off.
 Legacy CoolBoost-only files migrate to Auto with the saved CoolBoost preference.

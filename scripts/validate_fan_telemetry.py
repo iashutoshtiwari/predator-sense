@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from dbus_next import BusType, Message, MessageFlag, MessageType
 from dbus_next.aio import MessageBus
 
-from service.protocol import BUS_NAME, INTERFACE, OBJECT_PATH
-from service.telemetry_model import TelemetrySnapshot
+from predator_sense.service.protocol import BUS_NAME, INTERFACE, OBJECT_PATH
+from predator_sense.service.telemetry_model import TelemetrySnapshot
 
 
 async def call(bus, destination, member, *, identity=False):

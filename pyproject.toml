@@ -6,4 +6,32 @@ target-version = "py312"
 select = ["E", "F"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/frontend.py" = ["E501"]
+"src/predator_sense/frontend.py" = ["E501"]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "predator-sense"
+version = "1.0.0"
+description = "Native G3-572 fan control and telemetry for Arch Linux"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+dependencies = ["PyQt6>=6.6", "dbus-next>=0.2.3"]
+
+[project.optional-dependencies]
+nvidia = ["nvidia-ml-py"]
+
+[project.scripts]
+predator-sense = "predator_sense.main:main"
+predator-sensed = "predator_sense.daemon_main:main"
+predator-sense-check = "predator_sense.install_check:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+predator_sense = ["assets/*.svg"]

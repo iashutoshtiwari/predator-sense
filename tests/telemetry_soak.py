@@ -11,8 +11,8 @@ import time
 from PyQt6 import QtCore
 
 from test_dbus_integration import PrivateBusTests
-from ui.main_window import MainWindow
-from ui.theme import apply_theme
+from predator_sense.ui.main_window import MainWindow
+from predator_sense.ui.theme import apply_theme
 
 
 def main():

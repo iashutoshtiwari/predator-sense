@@ -5,7 +5,7 @@ import asyncio
 import logging
 import os
 
-from core import logger as logger_config
+from predator_sense.core import logger as logger_config
 
 
 def main():
@@ -13,7 +13,7 @@ def main():
         raise SystemExit("predator-sensed must be started as a root system service")
     logger_config.LOG_PATH = None  # systemd captures stream logs in the journal
     logging.basicConfig(level=logging.INFO, format=logger_config.LOG_FORMAT)
-    from service.daemon import run_daemon
+    from predator_sense.service.daemon import run_daemon
 
     asyncio.run(run_daemon())
 

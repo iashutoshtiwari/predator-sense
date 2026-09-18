@@ -9,7 +9,7 @@ import uuid
 from dbus_next import BusType, Message, MessageType, NameFlag, RequestNameReply, Variant
 from dbus_next.aio import MessageBus
 
-from service.protocol import (
+from predator_sense.service.protocol import (
     ACTION_ID,
     BUS_NAME,
     CONTROL_METHODS,
@@ -156,12 +156,12 @@ class ControlService:
 
 async def run_daemon():
     # Kept here so importing the bus protocol/client cannot import hardware code.
-    from core.env_checks import ensure_ec_access, run_env_checks
-    from core.hardware import G3572EcBackend
-    from service.controller import Controller
-    from service.lifecycle import SleepMonitor
-    from service.sensors import CoretempSensor, NvmlSensor
-    from service.telemetry import TelemetryEngine
+    from predator_sense.core.env_checks import ensure_ec_access, run_env_checks
+    from predator_sense.core.hardware import G3572EcBackend
+    from predator_sense.service.controller import Controller
+    from predator_sense.service.lifecycle import SleepMonitor
+    from predator_sense.service.sensors import CoretempSensor, NvmlSensor
+    from predator_sense.service.telemetry import TelemetryEngine
 
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     controller = Controller(G3572EcBackend())

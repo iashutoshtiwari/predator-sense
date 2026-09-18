@@ -5,10 +5,10 @@ import sys
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from service.client import ServiceClient
-from core.logger import get_logger
-from ui.main_window import MainWindow
-from ui.theme import APP_ID, APP_NAME, apply_theme, resource_path
+from predator_sense.service.client import ServiceClient
+from predator_sense.core.logger import get_logger
+from predator_sense.ui.main_window import MainWindow
+from predator_sense.ui.theme import APP_ID, APP_NAME, apply_theme, resource_path
 
 
 def main() -> int:

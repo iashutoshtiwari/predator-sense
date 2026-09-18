@@ -6,7 +6,7 @@ import json
 import math
 import time
 
-from core.profiles import FAN_RPM_MAX
+from predator_sense.core.profiles import FAN_RPM_MAX
 
 HISTORY_LIMIT = 120
 INTERVAL = 1.0

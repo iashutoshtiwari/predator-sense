@@ -25,7 +25,7 @@ jobs:
         run: ruff check .
 
       - name: Python compile check
-        run: python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py src/service/*.py src/daemon_main.py scripts/smoke_test.py scripts/collect_diagnostics.py scripts/validate_fan_telemetry.py
+        run: python -m compileall -q src scripts
 
       - name: Hardware-free behavioral tests
         env:
@@ -42,3 +42,24 @@ jobs:
         run: |
           test -f PKGBUILD
           grep -q "^pkgname=predator-sense" PKGBUILD
+
+
+      - name: Wheel contents and entry points
+        run: |
+          python -m build --wheel --no-isolation
+          python scripts/check_wheel.py dist/*.whl
+
+  arch-package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build without installing or starting services
+        run: |
+          pacman -Syu --noconfirm python python-build python-installer python-setuptools
+          useradd -m builder
+          chown -R builder:builder .
+          runuser -u builder -- python scripts/prepare_arch_source.py
+          runuser -u builder -- bash -c 'makepkg --printsrcinfo > .SRCINFO'
+          runuser -u builder -- makepkg --nodeps --nocheck --noconfirm
+          bsdtar -tf predator-sense-*.pkg.tar.zst

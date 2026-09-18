@@ -4,10 +4,10 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 from support import BackendCase
-from core import env_checks, hardware
-from core.errors import ErrorCode
-from core.hardware import G3572EcBackend
-from core.profiles import (
+from predator_sense.core import env_checks, hardware
+from predator_sense.core.errors import ErrorCode
+from predator_sense.core.hardware import G3572EcBackend
+from predator_sense.core.profiles import (
     CONTROL_REGISTERS,
     COOLBOOST_REGISTER,
     MODE_REGISTERS,

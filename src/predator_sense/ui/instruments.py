@@ -4,9 +4,9 @@ import time
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from core.profiles import FAN_RPM_MAX
-from font_config import font_numeric, font_ui
-from ui.theme import THEME
+from predator_sense.core.profiles import FAN_RPM_MAX
+from predator_sense.font_config import font_numeric, font_ui
+from predator_sense.ui.theme import THEME
 
 
 MODE_LABELS = {"auto": "AUTO", "firmware_auto": "AUTO", "manual": "MANUAL", "turbo": "TURBO"}

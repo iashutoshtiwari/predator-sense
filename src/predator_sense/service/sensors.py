@@ -5,7 +5,7 @@ import importlib
 from pathlib import Path
 import time
 
-from service.telemetry_model import Availability, Reading, observed
+from predator_sense.service.telemetry_model import Availability, Reading, observed
 
 
 def failed(name, source, error, *, status=None):

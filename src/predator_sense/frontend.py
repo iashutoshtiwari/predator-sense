@@ -2,9 +2,9 @@
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from font_config import font_numeric, font_ui
-from ui.instruments import CoolBoostSwitch, TelemetryCard, label
-from ui.theme import APP_NAME, THEME, resource_path
+from predator_sense.font_config import font_numeric, font_ui
+from predator_sense.ui.instruments import CoolBoostSwitch, TelemetryCard, label
+from predator_sense.ui.theme import APP_NAME, THEME, resource_path
 
 
 def segments(names, accessible_prefix):

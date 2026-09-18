@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock
 from dbus_next import Message, MessageType
 
 from support import BackendCase
-from core.profiles import FanMode
-from core.state import CoolingState, load_cooling_state, save_cooling_state
-from service.controller import Controller
-from service.lifecycle import LOGIN, MANAGER, PATH, SleepMonitor
-from service.protocol import ServiceError
-from service.telemetry_model import TelemetrySnapshot
+from predator_sense.core.profiles import FanMode
+from predator_sense.core.state import CoolingState, load_cooling_state, save_cooling_state
+from predator_sense.service.controller import Controller
+from predator_sense.service.lifecycle import LOGIN, MANAGER, PATH, SleepMonitor
+from predator_sense.service.protocol import ServiceError
+from predator_sense.service.telemetry_model import TelemetrySnapshot
 
 
 class PersistenceTests(BackendCase):

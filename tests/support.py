@@ -9,15 +9,15 @@ import time
 import unittest
 from unittest.mock import patch
 
-from core import logger as logger_config
+from predator_sense.core import logger as logger_config
 
 _LOGS = tempfile.TemporaryDirectory(prefix="predator-sense-test-logs-")
 logger_config.LOG_PATH = Path(_LOGS.name) / "app.log"
 atexit.register(_LOGS.cleanup)
 
-from core import env_checks, hardware  # noqa: E402 -- redirect logging before hardware imports
-from core.hardware import G3572EcBackend  # noqa: E402
-from core.profiles import (  # noqa: E402
+from predator_sense.core import env_checks, hardware  # noqa: E402 -- redirect logging before hardware imports
+from predator_sense.core.hardware import G3572EcBackend  # noqa: E402
+from predator_sense.core.profiles import (  # noqa: E402
     CONTROL_REGISTERS,
     FanChannel,
 )
@@ -97,7 +97,7 @@ class BackendCase(unittest.TestCase):
         self.backend = G3572EcBackend(_transport=self.ec)
 
     def assert_code(self, code, operation):
-        from core.errors import HardwareError
+        from predator_sense.core.errors import HardwareError
 
         with self.assertRaises(HardwareError) as result:
             operation()

@@ -23,8 +23,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 from dbus_next import BusType, Message, MessageType
 from dbus_next.aio import MessageBus
 
-from service.protocol import BUS_NAME, INTERFACE, OBJECT_PATH
-from core.profiles import (
+from predator_sense.service.protocol import BUS_NAME, INTERFACE, OBJECT_PATH
+from predator_sense.core.profiles import (
     BYTE_READ_REGISTERS, CONTROL_REGISTERS, COOLBOOST_REGISTER, EC_IO_FILE,
     MODE_REGISTERS, RPM_REGISTERS, WORD_READ_REGISTERS, FanChannel,
 )

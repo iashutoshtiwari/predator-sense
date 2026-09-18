@@ -2,11 +2,10 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-import sys
 
 from PyQt6 import QtGui
 
-from font_config import font_ui
+from predator_sense.font_config import font_ui
 
 APP_ID = "io.github.iashutoshtiwari.PredatorSense"
 APP_NAME = "Predator Sense"
@@ -34,9 +33,7 @@ THEME = Theme()
 
 
 def resource_path(relative):
-    roots = [Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1])),
-             Path(__file__).resolve().parents[2]]
-    return str(next((root / relative for root in roots if (root / relative).exists()), roots[-1] / relative))
+    return str(Path(__file__).resolve().parents[1] / relative)
 
 
 def stylesheet():

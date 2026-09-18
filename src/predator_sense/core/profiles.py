@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 
-from core.errors import HardwareError
+from predator_sense.core.errors import HardwareError
 
 SUPPORTED_PRODUCT = "Predator G3-572"
 TESTED_BIOS = "V1.22"

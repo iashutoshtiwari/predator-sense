@@ -11,11 +11,11 @@ import unittest
 from unittest.mock import Mock, patch
 
 from support import BackendCase
-from core.errors import ErrorCode, HardwareError
-from service.controller import Controller
-from service.sensors import CoretempSensor, NvmlSensor
-from service.telemetry import SampleResult, SensorWorker, TelemetryEngine, next_deadline
-from service.telemetry_model import Availability, EC_FIELDS, FIELDS, TelemetrySnapshot, observed
+from predator_sense.core.errors import ErrorCode, HardwareError
+from predator_sense.service.controller import Controller
+from predator_sense.service.sensors import CoretempSensor, NvmlSensor
+from predator_sense.service.telemetry import SampleResult, SensorWorker, TelemetryEngine, next_deadline
+from predator_sense.service.telemetry_model import Availability, EC_FIELDS, FIELDS, TelemetrySnapshot, observed
 
 
 class CoretempTests(unittest.TestCase):

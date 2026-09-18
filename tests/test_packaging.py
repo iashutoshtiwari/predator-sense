@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 from xml.etree import ElementTree
 
-from service.protocol import ACTION_ID, BUS_NAME, CONTROL_METHODS, INTERFACE, METHODS
+from predator_sense.service.protocol import ACTION_ID, BUS_NAME, CONTROL_METHODS, INTERFACE, METHODS
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -33,23 +33,24 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(len(CONTROL_METHODS), 7)
 
     def test_legacy_paths_are_retired_and_launcher_is_unprivileged(self):
-        launcher = (ROOT / "packaging/predator-sense").read_text()
-        self.assertNotIn("pkexec", launcher)
-        self.assertNotIn("sudo", launcher)
-        self.assertNotIn("QT_QPA_PLATFORM", launcher)
-        self.assertIn("exec /usr/bin/python", launcher)
+        import tomllib
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+        self.assertEqual(project["scripts"]["predator-sense"], "predator_sense.main:main")
+        self.assertEqual(project["scripts"]["predator-sensed"], "predator_sense.daemon_main:main")
         for path in ("background_service.py", "packaging/predator-sense-root", "packaging/predator-sense.service"):
             self.assertFalse((ROOT / path).exists())
         self.assertIn("disable --now predator-sense.service", (ROOT / "predator-sense.install").read_text())
 
     def test_gui_has_no_hardware_or_state_writer_imports(self):
-        for path in ("src/main.py", "src/frontend.py", "src/ui/main_window.py", "src/service/client.py"):
+        for path in ("src/predator_sense/main.py", "src/predator_sense/frontend.py",
+                     "src/predator_sense/ui/main_window.py", "src/predator_sense/service/client.py"):
             tree = ast.parse((ROOT / path).read_text())
             imports = [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-            self.assertFalse(any(name in ("core.hardware", "core.env_checks", "core.state") for name in imports))
+            forbidden = ("predator_sense.core.hardware", "predator_sense.core.env_checks", "predator_sense.core.state")
+            self.assertFalse(any(name in forbidden for name in imports))
 
     def test_root_gui_refused_before_qapplication(self):
-        import main
+        from predator_sense import main
 
         with patch.object(main.os, "geteuid", return_value=0), patch.object(main.QtWidgets, "QApplication") as app:
             with redirect_stderr(io.StringIO()) as output:
@@ -59,7 +60,7 @@ class PackagingTests(unittest.TestCase):
 
     def test_wayland_and_x11_startup_do_not_override_qt_platform(self):
         # Session assumptions only: no compositor is started in these tests.
-        import main
+        from predator_sense import main
 
         for session in ("wayland", "x11"):
             with self.subTest(session=session), patch.dict(os.environ, {"XDG_SESSION_TYPE": session}):
@@ -78,8 +79,11 @@ class PackagingTests(unittest.TestCase):
 
     def test_recipe_installs_all_python_modules_and_service_uses_dbus(self):
         recipe = (ROOT / "PKGBUILD").read_text()
-        for path in (ROOT / "src").rglob("*.py"):
-            self.assertIn(f"install -m644 {path.relative_to(ROOT)} ", recipe)
+        self.assertIn("python -m build --wheel --no-isolation", recipe)
+        self.assertIn("python -m installer", recipe)
+        self.assertNotIn("startdir", recipe)
+        self.assertNotIn("fonts/", recipe)
+        self.assertIn("GPL-3.0-only", recipe)
         unit = (ROOT / "packaging/predator-sensed.service").read_text()
         for setting in (
             "Type=dbus",

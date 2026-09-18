@@ -12,10 +12,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6 import QtCore, QtGui, QtTest, QtWidgets
 
 from dashboard_fixture import DashboardTransport, missing, samples
-from service.client import ServiceClient
-from service.telemetry_model import observed
-from ui.main_window import MainWindow
-from ui.theme import APP_ID, apply_theme
+from predator_sense.service.client import ServiceClient
+from predator_sense.service.telemetry_model import observed
+from predator_sense.ui.main_window import MainWindow
+from predator_sense.ui.theme import APP_ID, apply_theme
 
 
 class DashboardTests(unittest.TestCase):

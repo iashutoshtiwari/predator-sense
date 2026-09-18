@@ -10,8 +10,10 @@ from threading import Event, Thread
 import time
 import uuid
 
-from service.sensors import failed
-from service.telemetry_model import EC_FIELDS, FIELDS, HISTORY_LIMIT, INTERVAL, Reading, TelemetrySnapshot
+from predator_sense.service.sensors import failed
+from predator_sense.service.telemetry_model import (
+    EC_FIELDS, FIELDS, HISTORY_LIMIT, INTERVAL, Reading, TelemetrySnapshot,
+)
 
 
 def next_deadline(previous, now):

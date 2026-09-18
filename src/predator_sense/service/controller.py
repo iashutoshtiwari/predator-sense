@@ -5,13 +5,13 @@ from pathlib import Path
 from threading import RLock
 import time
 
-from core.errors import HardwareError
-from core.profiles import FanChannel, FanMode, RPM_REGISTERS
-from core.state import STATE_FILE, CoolingState, load_cooling_state, save_cooling_state
-from service.protocol import ServiceError
-from service.sensors import failed
-from service.telemetry import SampleResult
-from service.telemetry_model import Availability, EC_FIELDS, TelemetrySnapshot, observed
+from predator_sense.core.errors import HardwareError
+from predator_sense.core.profiles import FanChannel, FanMode, RPM_REGISTERS
+from predator_sense.core.state import STATE_FILE, CoolingState, load_cooling_state, save_cooling_state
+from predator_sense.service.protocol import ServiceError
+from predator_sense.service.sensors import failed
+from predator_sense.service.telemetry import SampleResult
+from predator_sense.service.telemetry_model import Availability, EC_FIELDS, TelemetrySnapshot, observed
 
 
 def optional_int(value):

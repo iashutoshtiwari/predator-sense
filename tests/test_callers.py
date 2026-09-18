@@ -6,15 +6,15 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from support import BackendCase
-from core.state import load_coolboost_state, save_coolboost_state
-from service.client import ServiceClient, actionable_error
-from service.protocol import ERROR_PREFIX
-from service.telemetry_model import Availability, FIELDS, TelemetrySnapshot, observed
+from predator_sense.core.state import load_coolboost_state, save_coolboost_state
+from predator_sense.service.client import ServiceClient, actionable_error
+from predator_sense.service.protocol import ERROR_PREFIX
+from predator_sense.service.telemetry_model import Availability, FIELDS, TelemetrySnapshot, observed
 import time
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PyQt6 import QtCore, QtWidgets
-from ui.main_window import MainWindow
+from predator_sense.ui.main_window import MainWindow
 
 
 class FakeTransport:
@@ -173,7 +173,7 @@ class ClientWindowTests(BackendCase):
         pending = []
         self.transport.call = lambda member, args, callback: pending.append(callback)
         self.client.refresh()
-        with patch("service.client.time.monotonic", return_value=time.monotonic() + 4):
+        with patch("predator_sense.service.client.time.monotonic", return_value=time.monotonic() + 4):
             for _ in range(10):
                 self.client.refresh()
         self.assertEqual(len(pending), 1)
@@ -224,7 +224,7 @@ class StateDiagnosticsTests(BackendCase):
     def test_failed_replace_retains_existing_state(self):
         state = self.root / "state.json"
         save_coolboost_state(True, state)
-        with patch("core.state.os.replace", side_effect=OSError("simulated failure")):
+        with patch("predator_sense.core.state.os.replace", side_effect=OSError("simulated failure")):
             with self.assertRaises(OSError):
                 save_coolboost_state(False, state)
         self.assertTrue(load_coolboost_state(state))

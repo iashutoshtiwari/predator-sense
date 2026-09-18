@@ -22,22 +22,23 @@ It distinguishes implemented safeguards from outstanding physical validation. Ke
 
 | File | Responsibility |
 | --- | --- |
-| `src/main.py` | Unprivileged GUI entry point, root refusal, QApplication, desktop identity, theme/icon, resizable window. |
-| `src/frontend.py` | Layout-managed dashboard construction and labels (`Ui_PredatorSense`). |
-| `src/ui/main_window.py` | `MainWindow`, asynchronous client actions, service status, and observed-state rendering. |
-| `src/core/profiles.py` | Single G3-572 constant map, `FanChannel`, `FanMode`, identity/status types. |
-| `src/core/hardware.py` | `G3572EcBackend`, private EC transport, locking, verified semantic operations. |
-| `src/core/env_checks.py` | Exact normalized DMI identity gate and daemon-only bounded startup EC preparation. |
-| `src/core/errors.py`, `src/core/state.py` | Structured hardware failures and atomic cooling-state persistence. |
-| `src/core/logger.py` | Console logging and rotating file logs. |
-| `src/font_config.py` | System UI and numeric font helpers; no bundled font registration. |
-| `src/ui/theme.py`, `src/ui/instruments.py` | Central theme/desktop identity, passive telemetry cards, QPainter graphs and CoolBoost switch. |
-| `src/daemon_main.py`, `src/service/daemon.py` | Root entry point, system bus ownership, Polkit checks, serialized requests. |
-| `src/service/lifecycle.py` | Trusted logind sleep signals, serialized recovery and bounded health retry rate. |
-| `src/service/controller.py` | Daemon operations, validated cooling-state restore, serialized EC sampling. |
-| `src/service/protocol.py`, `src/service/client.py` | Stable wire contract and asynchronous unprivileged Qt client. |
-| `src/service/telemetry_model.py` | Immutable snapshots, per-sensor status/freshness, versioned JSON wire schema. |
-| `src/service/sensors.py`, `src/service/telemetry.py` | Daemon-only coretemp/NVML sources, isolated bounded workers, monotonic 1 Hz sampling. |
+| `src/predator_sense/main.py` | Unprivileged GUI entry point, root refusal, QApplication, desktop identity, theme/icon, resizable window. |
+| `src/predator_sense/frontend.py` | Layout-managed dashboard construction and labels (`Ui_PredatorSense`). |
+| `src/predator_sense/install_check.py` | Read-only installation verification command (`predator-sense-check`). |
+| `src/predator_sense/ui/main_window.py` | `MainWindow`, asynchronous client actions, service status, and observed-state rendering. |
+| `src/predator_sense/core/profiles.py` | Single G3-572 constant map, `FanChannel`, `FanMode`, identity/status types. |
+| `src/predator_sense/core/hardware.py` | `G3572EcBackend`, private EC transport, locking, verified semantic operations. |
+| `src/predator_sense/core/env_checks.py` | Exact normalized DMI identity gate and daemon-only bounded startup EC preparation. |
+| `src/predator_sense/core/errors.py`, `src/predator_sense/core/state.py` | Structured hardware failures and atomic cooling-state persistence. |
+| `src/predator_sense/core/logger.py` | Console logging and rotating file logs. |
+| `src/predator_sense/font_config.py` | System UI and numeric font helpers; no bundled font registration. |
+| `src/predator_sense/ui/theme.py`, `src/predator_sense/ui/instruments.py` | Central theme/desktop identity, passive telemetry cards, QPainter graphs and CoolBoost switch. |
+| `src/predator_sense/daemon_main.py`, `src/predator_sense/service/daemon.py` | Root entry point, system bus ownership, Polkit checks, serialized requests. |
+| `src/predator_sense/service/lifecycle.py` | Trusted logind sleep signals, serialized recovery and bounded health retry rate. |
+| `src/predator_sense/service/controller.py` | Daemon operations, validated cooling-state restore, serialized EC sampling. |
+| `src/predator_sense/service/protocol.py`, `src/predator_sense/service/client.py` | Stable wire contract and asynchronous unprivileged Qt client. |
+| `src/predator_sense/service/telemetry_model.py` | Immutable snapshots, per-sensor status/freshness, versioned JSON wire schema. |
+| `src/predator_sense/service/sensors.py`, `src/predator_sense/service/telemetry.py` | Daemon-only coretemp/NVML sources, isolated bounded workers, monotonic 1 Hz sampling. |
 | `packaging/`, `predator-sense.install` | Launchers, desktop entry, polkit policy, systemd unit, package lifecycle hooks. |
 | `PKGBUILD`, `.SRCINFO` | Arch package recipe and metadata. |
 | `tests/` | Hardware-free backend, controller, service, and diagnostics checks using unittest. |

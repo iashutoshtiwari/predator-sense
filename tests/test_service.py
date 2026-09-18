@@ -6,11 +6,13 @@ from unittest.mock import AsyncMock
 from dbus_next import Message, MessageType, Variant
 
 from support import BackendCase
-from core.profiles import FanMode
-from service.controller import Controller
-from service.daemon import ControlService, PolkitAuthorizer
-from service.telemetry_model import TelemetrySnapshot
-from service.protocol import ACTION_ID, CONTROL_METHODS, ERROR_PREFIX, INTERFACE, OBJECT_PATH, ServiceError
+from predator_sense.core.profiles import FanMode
+from predator_sense.service.controller import Controller
+from predator_sense.service.daemon import ControlService, PolkitAuthorizer
+from predator_sense.service.telemetry_model import TelemetrySnapshot
+from predator_sense.service.protocol import (
+    ACTION_ID, CONTROL_METHODS, ERROR_PREFIX, INTERFACE, OBJECT_PATH, ServiceError,
+)
 
 
 class ServiceTests(BackendCase, unittest.IsolatedAsyncioTestCase):

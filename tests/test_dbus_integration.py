@@ -13,8 +13,8 @@ import uuid
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PyQt6 import QtCore, QtDBus, QtWidgets
 
-from service.client import QtBusTransport, ServiceClient
-from service.protocol import BUS_NAME, ERROR_PREFIX, INTERFACE, OBJECT_PATH
+from predator_sense.service.client import QtBusTransport, ServiceClient
+from predator_sense.service.protocol import BUS_NAME, ERROR_PREFIX, INTERFACE, OBJECT_PATH
 
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "private D-Bus integration requires dbus-daemon")

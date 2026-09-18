@@ -8,11 +8,11 @@ from dbus_next import Message, MessageType
 from dbus_next.aio import MessageBus
 
 from support import BackendCase
-from service.controller import Controller
-from service.daemon import ControlService, PolkitAuthorizer
-from service.protocol import BUS_NAME
-from service.telemetry import TelemetryEngine
-from service.telemetry_model import observed
+from predator_sense.service.controller import Controller
+from predator_sense.service.daemon import ControlService, PolkitAuthorizer
+from predator_sense.service.protocol import BUS_NAME
+from predator_sense.service.telemetry import TelemetryEngine
+from predator_sense.service.telemetry_model import observed
 
 
 async def main():

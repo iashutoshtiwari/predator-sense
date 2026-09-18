@@ -643,3 +643,61 @@ consistency, and diff-whitespace checks passed. A non-installing `makepkg --node
 -f` build succeeded; the archive contains all modules, matching desktop/SVG assets,
 and qt6-svg dependency, with no bundled fonts or ICO. No installed services,
 package lifecycle hooks, kernel modules, live hardware, or commits were touched.
+
+
+## Phase 7: Arch/CachyOS packaging and "just works" installation
+
+Phase 7 delivers a standards-compliant Arch Linux package (`PKGBUILD`, `predator-sense.install`,
+and associated systemd, D-Bus, Polkit, and desktop files) targeting Arch Linux, CachyOS, and
+compatible Arch-derived distributions.
+
+### Packaging structure and Python wheel build
+
+Rather than loose files copied to `/usr/share/`, the application is structured as a standard
+Python package (`predator_sense`) built via `pyproject.toml` using `setuptools.build_meta`:
+- `predator-sense`: unprivileged GUI console script entry point (`predator_sense.main:main`).
+- `predator-sensed`: root hardware service daemon entry point (`predator_sense.daemon_main:main`).
+- `predator-sense-check`: non-mutating installation health check (`predator_sense.install_check:main`).
+
+`PKGBUILD` invokes standard packaging tooling (`python -m build --wheel --no-isolation` and
+`python -m installer --destdir="$pkgdir" --prefix=/usr dist/*.whl`), ensuring correct file
+ownership, permissions, and bytecode compilation.
+
+### ec_sys configuration and debugfs access
+
+- `/etc/modprobe.d/predator-sense.conf` configures `options ec_sys write_support=1`.
+- The daemon conditionally loads `ec_sys` via `ensure_ec_access()` only after strictly
+  verifying the normalized DMI product name (`Predator G3-572`). Unconditional boot loading via
+  `/usr/lib/modules-load.d/` is deliberately avoided to prevent enabling EC write support on
+  incompatible hardware if the package is installed across multiple machines.
+- The daemon detects `/sys/kernel/debug/ec/ec0/io` and never attempts dangerous debugfs
+  remounts. The unprivileged GUI never invokes `modprobe` or requests sudo.
+
+### Systemd, D-Bus, and Polkit integration
+
+- Systemd unit is installed to `/usr/lib/systemd/system/predator-sensed.service` (`Type=dbus`,
+  `BusName=io.github.iashutoshtiwari.PredatorSense`, `Conflicts=predator-sense.service`).
+- In accordance with Arch Linux packaging guidelines, `.install` scriptlets never enable or
+  start systemd services automatically. `post_install()` informs the administrator to execute
+  `systemctl enable --now predator-sensed.service`.
+- D-Bus policy at `/usr/share/dbus-1/system.d/io.github.iashutoshtiwari.PredatorSense.conf`
+  enforces strict destination and method routing.
+- Polkit action at `/usr/share/polkit-1/actions/io.github.iashutoshtiwari.predatorsense.policy`
+  gates hardware mutations with `auth_admin_keep` for active sessions.
+
+### Desktop identity, Wayland, and font policy
+
+- Standards-compliant `.desktop` file installed to `/usr/share/applications/` with `Exec=predator-sense`,
+  `StartupWMClass=io.github.iashutoshtiwari.PredatorSense`, and `Categories=System;Settings;`.
+- Scalable vector icon installed to `/usr/share/icons/hicolor/scalable/apps/`.
+- No forced XCB platform (`QT_QPA_PLATFORM=xcb` is never exported); native Wayland sessions are preserved.
+- Bundled Squares fonts remain uninstalled audit material due to confirmed commercial copyright
+  from TypeType (Ivan Gladkikh and Olexa Volochay, 2014); the UI relies strictly on system fonts.
+
+### Installation verification and state lifecycle
+
+- `predator-sense-check` executes read-only validation: DMI product identity, systemd service installation
+  and active state, D-Bus responsiveness without activating an inactive daemon, EC file and module parameter
+  presence, GUI dependencies, and live telemetry sources (CPU, GPU, fan RPMs).
+- Atomic cooling state under `/var/lib/predator-sense/state.json` is preserved across upgrades and package
+  removal. `post_remove()` documents its retention and manual purge procedure.

@@ -1,9 +1,9 @@
 from PyQt6 import QtCore, QtWidgets
 
-from frontend import Ui_PredatorSense
-from service.client import ServiceClient
-from ui.instruments import set_role, set_text
-from ui.theme import THEME
+from predator_sense.frontend import Ui_PredatorSense
+from predator_sense.service.client import ServiceClient
+from predator_sense.ui.instruments import set_role, set_text
+from predator_sense.ui.theme import THEME
 
 
 class MainWindow(QtWidgets.QDialog, Ui_PredatorSense):

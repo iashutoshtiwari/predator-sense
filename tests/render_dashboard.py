@@ -12,10 +12,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6 import QtCore, QtWidgets
 
 from dashboard_fixture import DashboardTransport, missing, samples
-from service.client import ServiceClient
-from ui.instruments import label
-from ui.main_window import MainWindow
-from ui.theme import apply_theme
+from predator_sense.service.client import ServiceClient
+from predator_sense.ui.instruments import label
+from predator_sense.ui.main_window import MainWindow
+from predator_sense.ui.theme import apply_theme
 
 
 def main():
