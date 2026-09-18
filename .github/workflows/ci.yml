@@ -25,13 +25,15 @@ jobs:
         run: ruff check .
 
       - name: Python compile check
-        run: python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py scripts/smoke_test.py background_service.py scripts/collect_diagnostics.py
+        run: python -m py_compile src/main.py src/frontend.py src/font_config.py src/core/*.py src/ui/*.py src/service/*.py src/daemon_main.py scripts/smoke_test.py scripts/collect_diagnostics.py
 
       - name: Hardware-free behavioral tests
         env:
           PYTHONPATH: src
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest discover -s tests -v
+        run: |
+          command -v dbus-daemon
+          python -m unittest discover -s tests -v
 
       - name: Repo smoke test
         run: python scripts/smoke_test.py

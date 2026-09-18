@@ -149,6 +149,12 @@ class Ui_PredatorSense(object):
         self.exit_button.setObjectName("pushButton")
         self.fan_control_tab.addTab(self.tab, "")
 
+        self.status_label = QtWidgets.QLabel(self.tab)
+        self.status_label.setGeometry(QtCore.QRect(20, 171, 591, 18))
+        self.status_label.setFont(font_ui(9))
+        self.status_label.setObjectName("serviceStatus")
+        self.status_label.setAccessibleName("Hardware service status")
+
         self.retranslateUi(PredatorSense)
         self.fan_control_tab.setCurrentIndex(0)
         QtCore.QMetaObject.connectSlotsByName(PredatorSense)

@@ -7,8 +7,7 @@ from PyQt6 import QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPalette
 
-from core.env_checks import ensure_ec_access, run_env_checks
-from core.hardware import G3572EcBackend
+from service.client import ServiceClient
 from core.logger import get_logger
 from font_config import UI_FONT_FAMILY, apply_ui_family, register_bundled_fonts
 from ui.main_window import MainWindow
@@ -117,6 +116,9 @@ QSlider::handle:vertical:disabled {
     background: #6a6a6a;
     border: 1px solid #5a5a5a;
 }
+QLabel#serviceStatus {
+    color: #d4d4d4;
+}
 QToolTip {
     border: 1px solid #404040;
     background-color: #1a1a1a;
@@ -142,22 +144,11 @@ def resource_path(relative_path: str) -> str:
 
 
 def main() -> int:
+    if os.geteuid() == 0:
+        print("Run predator-sense as your normal desktop user, without sudo or pkexec.", file=sys.stderr)
+        return 1
     logger = get_logger(__name__)
-    logger.info("PredatorSense starting")
-
-    if not run_env_checks():
-        logger.critical("Environment checks failed; exiting")
-        return 1
-
-    if not ensure_ec_access():
-        logger.critical("EC access check failed; exiting")
-        return 1
-
-    backend = G3572EcBackend()
-    status = backend.probe()
-    if not status.writable:
-        logger.critical("Hardware backend unavailable: %s", status.error)
-        return 1
+    logger.info("PredatorSense starting as the desktop user")
 
     app = QtWidgets.QApplication([])
     primary_family = register_bundled_fonts()
@@ -165,7 +156,7 @@ def main() -> int:
         apply_ui_family(primary_family)
     app.setFont(QtGui.QFont(UI_FONT_FAMILY, 10))
 
-    application = MainWindow(backend)
+    application = MainWindow(ServiceClient())
     application.setFixedSize(635, 465)
     app.setStyle("Breeze")
 

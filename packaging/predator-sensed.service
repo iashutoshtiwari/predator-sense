@@ -1,0 +1,30 @@
+[Unit]
+Description=Predator Sense G3-572 hardware service
+After=dbus.service
+Requires=dbus.service
+Conflicts=predator-sense.service
+
+[Service]
+Type=dbus
+BusName=io.github.iashutoshtiwari.PredatorSense
+ExecStart=/usr/bin/predator-sensed
+User=root
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+StateDirectory=predator-sense
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+# Do not enable ProtectKernelTunables/ProtectKernelModules/PrivateDevices:
+# ec_sys preparation and writable debugfs EC access are required.
+
+[Install]
+WantedBy=multi-user.target

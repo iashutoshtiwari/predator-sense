@@ -1,14 +1,17 @@
 pkgbase = predator-sense
 	pkgdesc = Predator Sense fan control app for Helios 300 G3-572-55UB
 	pkgver = 0.2.0
-	pkgrel = 1
+	pkgrel = 2
 	url = local
 	install = predator-sense.install
 	arch = x86_64
 	license = MIT
 	depends = python
 	depends = python-pyqt6
+	depends = python-dbus-next
 	depends = polkit
+	depends = dbus
+	depends = qt6-wayland
 	optdepends = evtest: monitor keyboard events while troubleshooting
 
 pkgname = predator-sense

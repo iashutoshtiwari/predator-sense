@@ -6,7 +6,7 @@ def main():
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     required = [
         repo_root / "src" / "main.py",
-        repo_root / "background_service.py",
+        repo_root / "src" / "daemon_main.py",
         repo_root / "src" / "frontend.py",
         repo_root / "src" / "font_config.py",
         repo_root / "src" / "core" / "hardware.py",
@@ -16,9 +16,17 @@ def main():
         repo_root / "src" / "core" / "errors.py",
         repo_root / "src" / "core" / "state.py",
         repo_root / "src" / "ui" / "main_window.py",
+        repo_root / "src" / "service" / "daemon.py",
+        repo_root / "src" / "service" / "client.py",
+        repo_root / "src" / "service" / "protocol.py",
+        repo_root / "src" / "service" / "controller.py",
+        repo_root / "packaging" / "io.github.iashutoshtiwari.PredatorSense.conf",
+        repo_root / "packaging" / "io.github.iashutoshtiwari.predatorsense.policy",
         repo_root / "PKGBUILD",
         repo_root / "packaging" / "predator-sense.desktop",
-        repo_root / "packaging" / "predator-sense.service",
+        repo_root / "packaging" / "predator-sensed.service",
+        repo_root / "packaging" / "predator-sensed",
+        repo_root / "packaging" / "io.github.iashutoshtiwari.PredatorSense.service",
     ]
     missing = [str(path) for path in required if not path.exists()]
     if missing:

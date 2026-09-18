@@ -8,6 +8,7 @@ It does not modify EC values, fan modes, clocks, or power settings.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import datetime as dt
 import os
 import pathlib
@@ -19,8 +20,10 @@ from typing import Iterable
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
-from core.errors import HardwareError
-from core.hardware import G3572EcBackend
+from dbus_next import BusType, Message, MessageType
+from dbus_next.aio import MessageBus
+
+from service.protocol import BUS_NAME, INTERFACE, OBJECT_PATH
 from core.profiles import (
     BYTE_READ_REGISTERS, CONTROL_REGISTERS, COOLBOOST_REGISTER, EC_IO_FILE,
     MODE_REGISTERS, RPM_REGISTERS, WORD_READ_REGISTERS, FanChannel,
@@ -81,18 +84,36 @@ def append_ec_registers(output: list[str], addresses: tuple[int, ...]) -> None:
     write_section(output, "EC State (decoded values; RPM uses word reads)")
     output.append(f"ec_io_path: {EC_IO_PATH}")
 
-    backend = G3572EcBackend()
-    readers = {COOLBOOST_REGISTER: backend.get_coolboost}
-    for channel in FanChannel:
-        readers[MODE_REGISTERS[channel]] = lambda c=channel: backend.get_fan_mode(c).value
-        readers[CONTROL_REGISTERS[channel]] = lambda c=channel: backend.get_manual_speed(c)
-        readers[RPM_REGISTERS[channel]] = lambda c=channel: backend.get_fan_rpm(c)
-    for address in addresses:
-        try:
-            value = readers[address]()
-            output.append(f"0x{address:02X}: {value if value is not None else 'unavailable'}")
-        except HardwareError as exc:
-            output.append(f"0x{address:02X}: unavailable [{exc.code.value}]: {exc}")
+    try:
+        values = asyncio.run(read_daemon_ec())
+        for address in addresses:
+            output.append(f"0x{address:02X}: {values[address]}")
+    except (OSError, TimeoutError, RuntimeError) as exc:
+        output.append(f"Daemon unavailable: {exc}; install/start predator-sensed.service")
+
+
+async def read_daemon_ec():
+    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    values = {}
+    try:
+        for method, registers in (
+            ("GetFanState", [MODE_REGISTERS[FanChannel.CPU], MODE_REGISTERS[FanChannel.GPU],
+                             CONTROL_REGISTERS[FanChannel.CPU], CONTROL_REGISTERS[FanChannel.GPU]]),
+            ("GetCoolBoost", [COOLBOOST_REGISTER]),
+            ("GetFanSpeeds", [RPM_REGISTERS[FanChannel.CPU], RPM_REGISTERS[FanChannel.GPU]]),
+        ):
+            reply = await asyncio.wait_for(bus.call(Message(
+                destination=BUS_NAME, path=OBJECT_PATH, interface=INTERFACE, member=method,
+            )), 4)
+            if reply.message_type == MessageType.ERROR:
+                for register in registers:
+                    values[register] = f"unavailable [{reply.error_name}]: {reply.body[0]}"
+            else:
+                for register, value in zip(registers, reply.body):
+                    values[register] = "unavailable" if value == -1 else value
+        return values
+    finally:
+        bus.disconnect()
 
 
 def append_hwmon_inventory(output: list[str]) -> None:

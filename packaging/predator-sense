@@ -1,4 +1,3 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-pkexec /usr/bin/predator-sense-root
+exec /usr/bin/python /usr/share/predator-sense/src/main.py "$@"

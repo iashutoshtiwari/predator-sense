@@ -18,22 +18,18 @@ def get_logger(name: str = "predator-sense") -> logging.Logger:
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-
     formatter = logging.Formatter(LOG_FORMAT)
-
-    file_handler = RotatingFileHandler(
-        LOG_PATH,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(formatter)
+    if LOG_PATH is not None:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            LOG_PATH, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
 
-    logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
     return logger

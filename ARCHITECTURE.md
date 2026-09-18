@@ -1,76 +1,131 @@
 # Predator Sense architecture and hardware contract
 
-Updated 2026-09-18 for the Phase 1 backend work, based on the Phase 0 audit of
-`master` at `aeab951`. Changes remain in the worktree. This document distinguishes
-implemented behavior, supplied hardware observations, and outstanding validation.
+Updated 2026-09-18 for Phase 2. The Phase 0 audit and Phase 1 backend are retained
+as the hardware evidence and safety foundation. Phase 2 moves all production EC
+access and saved-state ownership into a root daemon. Real-device validation is
+separate from the mocked and private-bus verification below.
 
-## Assessment and product boundary
+## Product and process boundary
 
-One `G3572EcBackend` now owns production EC operations for the GUI, CoolBoost
-service, and EC diagnostics. It checks exact normalized DMI identity, validates
-operations, serializes access, and verifies writes. The prior public raw writer,
-GUI startup fallback writes, and service-specific register constants are removed.
-The presentation/controller/core split is retained.
+Only normalized DMI product `Predator G3-572` is supported (reported unit
+G3-572-55UB, BIOS V1.22, Intel Kaby Lake-H / HD Graphics 630 and GTX 1050 Ti).
+Other BIOS versions are reported as unvalidated. Arch Linux, CachyOS, and
+compatible Arch derivatives are the target; Ubuntu hosts hardware-free CI.
+No other Acer models, generic model framework, GPU OC, RGB, battery control,
+Predator-v4 overrides, or custom kernel modules are included.
 
-The only supported machine is the Acer Predator G3-572 (reported unit:
-G3-572-55UB), with DMI product name `Predator G3-572`. The supplied hardware
-observations use BIOS `V1.22`, Intel Kaby Lake-H / HD Graphics 630, and NVIDIA
-GeForce GTX 1050 Ti. These are not measurements performed during development.
-Other BIOS versions are exposed and logged as unvalidated, not automatically
-rejected when the product matches.
+```text
+normal desktop user
+  predator-sense → Python/PyQt6 GUI → asynchronous QtDBus client
+                                          │ system D-Bus
+                                          ▼
+root systemd service: predator-sensed
+  narrow method dispatcher → Polkit for mutations → serialized controller
+                                                      │
+                         G3572EcBackend ← exact DMI gate
+                               │
+                  /sys/kernel/debug/ec/ec0/io
+```
 
-Supported distributions are Arch Linux, CachyOS, and compatible Arch derivatives.
-Ubuntu is a CI environment, not a promised desktop runtime. No generic model
-framework or other Acer laptop support is provided. There is no D-Bus daemon,
-GPU overclocking, RGB, battery control, or live telemetry display. The backend
-and diagnostics provide candidate fan RPM reads for subsequent work.
+The GUI refuses execution as root and imports neither the backend, environment
+preparation, nor the state writer. It preserves the desktop user's display/theme
+and accessibility environment. No launcher sets `QT_QPA_PLATFORM`; the package
+supplies `qt6-wayland`, allowing Qt's session-based Wayland/X11 selection. Source
+launches require the matching system service/policies to be installed separately.
 
-The supplied machine context reports `acer_wmi` and `ec_sys`, without usable
-G3-572 fan/PWM hwmon controls in `acer_wmi`. No Predator-v4 capability override,
-other-model WMI quirk, or custom kernel module is used.
-
-## Components and privilege boundary
+## Components
 
 | Component | Responsibility |
 | --- | --- |
-| [`src/main.py`](src/main.py) | Environment validation, explicit EC preparation, backend probe, QApplication, theme/fonts/icon, fixed 635 × 465 window. |
-| [`src/frontend.py`](src/frontend.py) | Widget construction, labels, geometry, fonts. No EC operations or mode-control side effects. Its referenced `dialog.ui` remains untracked. |
-| [`src/ui/main_window.py`](src/ui/main_window.py) | Semantic backend calls, observed-state rendering, actions, visible errors, verified CoolBoost persistence. Backend is injected. |
-| [`src/core/profiles.py`](src/core/profiles.py) | One immutable G3-572 register/value map, `FanChannel`, `FanMode`, `HardwareIdentity`, `HardwareStatus`. |
-| [`src/core/hardware.py`](src/core/hardware.py) | `G3572EcBackend`, private byte/word transport, locks, allow-list and readback verification. No subprocesses or escalation. |
-| [`src/core/env_checks.py`](src/core/env_checks.py) | Authoritative normalized DMI identity and separate, explicit startup preparation. |
-| [`src/core/errors.py`](src/core/errors.py) | `HardwareError` and stable `ErrorCode` categories. |
-| [`src/core/state.py`](src/core/state.py) | Shared compatible CoolBoost JSON schema and atomic replacement. |
-| [`background_service.py`](background_service.py) | Every 15 seconds, reads saved CoolBoost preference and reapplies it through the backend if the observed state is known and differs. |
-| [`scripts/collect_diagnostics.py`](scripts/collect_diagnostics.py) | Read-only system inventory and semantic EC reads through the backend; no arbitrary EC address access. |
-| [`src/core/logger.py`](src/core/logger.py) | Console and rotating file logs under the executing user's home. |
-| [`src/font_config.py`](src/font_config.py), `fonts/` | Bundled Squares registration and QFont helpers; source/installed/PyInstaller lookup. |
-| [`tests/`](tests/) | Hardware-free unittest cases with fake EC I/O, temporary DMI/state/logs, and offscreen Qt. |
+| [`src/main.py`](src/main.py) | Normal-user GUI entry point, root refusal, QApplication, styling/fonts/icon, fixed 635 × 465 window. |
+| [`src/frontend.py`](src/frontend.py) | Presentation and service-status label; no hardware behavior. Its referenced `dialog.ui` remains untracked. |
+| [`src/ui/main_window.py`](src/ui/main_window.py) | Client actions, debounced sliders, availability/busy/error rendering, observed state. |
+| [`src/service/client.py`](src/service/client.py) | Nonblocking QtDBus calls, timeouts, error mapping, state refresh, one pending mutation. |
+| [`src/service/protocol.py`](src/service/protocol.py) | Stable names, signatures, strict validation, generated introspection; no I/O. |
+| [`src/daemon_main.py`](src/daemon_main.py), [`src/service/daemon.py`](src/service/daemon.py) | Root-only daemon entry, system bus, sender-based Polkit checks, bounded request queue, serialized dispatch. No Qt dependency in daemon code. |
+| [`src/service/controller.py`](src/service/controller.py) | Hardware operations, saved CoolBoost restoration/persistence, fixed sysfs temperature reads. |
+| [`src/core/hardware.py`](src/core/hardware.py) | Guarded G3572EcBackend, private EC byte/word transport, locking and verified writes. |
+| [`src/core/profiles.py`](src/core/profiles.py), [`src/core/errors.py`](src/core/errors.py) | Immutable one-machine map, enums/identity/status and structured hardware failures. |
+| [`src/core/env_checks.py`](src/core/env_checks.py) | Authoritative exact DMI gate and bounded daemon-only ec_sys preparation. |
+| [`src/core/state.py`](src/core/state.py) | Compatible atomic CoolBoost persistence, called only by daemon in production. |
+| [`src/core/logger.py`](src/core/logger.py) | GUI user-home logs; daemon sets LOG_PATH=None and uses journal-captured streams. |
+| [`scripts/collect_diagnostics.py`](scripts/collect_diagnostics.py) | System inventory and read-only D-Bus cooling queries; never opens EC itself. |
+| [`tests/`](tests/) | Fake hardware/transport tests and real Qt/dbus-next wire tests on a private bus with fake Polkit. |
 
-```text
-desktop entry → /usr/bin/predator-sense → pkexec
-  → /usr/bin/predator-sense-root → src/main.py
-  → exact DMI check → explicit EC preparation → backend probe → MainWindow
+## D-Bus and authorization contract
 
-systemd (root) → background_service.py
-  → same startup checks → saved CoolBoost preference → backend
+- Bus name: `io.github.iashutoshtiwari.PredatorSense`
+- Object: `/io/github/iashutoshtiwari/PredatorSense`
+- Interface: `io.github.iashutoshtiwari.PredatorSense.Control`
+- Polkit action: `io.github.iashutoshtiwari.predatorsense.control`
+- Domain error prefix: `io.github.iashutoshtiwari.PredatorSense.Error.`
 
-diagnostics → backend read operations only
+All public methods use scalar D-Bus types. Unknown integers are `-1`, preserving
+zero as a valid value. The interface is introspectable; there are no arbitrary
+address/path/command methods, writable properties, or caller-supplied identities.
 
-all backend transactions → exact DMI gate → process/thread locks → EC I/O
-```
+| Method | Input signature | Output and meaning |
+| --- | --- | --- |
+| GetHardwareIdentity | empty | `ssbb`: product, BIOS (empty if unavailable), supported, tested BIOS. |
+| GetStatus | empty | `bss`: control-ready, error code, explanation/startup warning. |
+| GetFanState | empty | `ssii`: CPU mode, GPU mode, CPU control %, GPU control %. |
+| GetCoolBoost | empty | `i`: -1 unknown, 0 off, 1 on. |
+| GetTemperatures | empty | `ii`: CPU/GPU millidegrees C or -1; hottest valid coretemp/nvidia/nouveau hwmon input. |
+| GetFanSpeeds | empty | `ii`: candidate CPU/GPU RPM or -1. |
+| SetCpuFanMode / SetGpuFanMode | `s` | Empty result after verification; auto, turbo, or manual only. Manual preserves existing valid control value. |
+| SetCpuManualSpeed / SetGpuManualSpeed | `i` | Empty result; strictly 0–100, enters Manual then applies/verifies speed. |
+| SetCoolBoost | `b` | Empty result after verification and atomic persistence. |
+| SetGlobalAuto / SetGlobalTurbo | empty | Empty result after sequential CPU/GPU verification. Partial failure is reported. |
 
-The installed root wrapper defaults Qt to `xcb`. Launcher paths and the polkit
-`exec.path` agree. Polkit authorizes the GUI executable, not individual operations.
-The existing service runs as root without sandbox directives. Privilege separation
-into a dedicated daemon remains future work.
+Read methods do not authenticate. Each mutation validates its signature, enum,
+and range before checking Polkit. Unlike the local backend's integer clamping,
+the D-Bus boundary rejects percentages outside 0–100. The dispatcher uses the
+unique sender supplied by the bus as a `system-bus-name` Polkit subject, never a
+PID/UID claimed in arguments. It rechecks that sender's connection after waiting
+for authorization and the operation lock. If authorization fails, times out,
+is dismissed, or the sender disappears, no control operation is invoked.
 
-`core.env_checks.ensure_ec_access()` preserves existing startup behavior: after
-checking DMI it tries a read-only open, and if the EC path is missing may run
-`modprobe ec_sys write_support=1` with an eight-second timeout. It does not mount
-debugfs or invoke sudo/pkexec. Only GUI/service startup calls this preparation.
-Constructing/probing the backend and running diagnostics do not prepare the
-system or write EC registers.
+The installed bus policy permits root alone to own the name and lists every
+routable method explicitly. Routing permission is not mutation authorization;
+the dispatcher always calls Polkit. Inactive/remote sessions are denied by the
+default action policy, while an active local session uses `auth_admin_keep`.
+Temporary retention is managed by Polkit (not a permanent app authorization),
+and calls share one action without caller-controlled authorization details.
+See the [Polkit authorization API](https://polkit.pages.freedesktop.org/polkit/eggdbus-interface-org.freedesktop.PolicyKit1.Authority.html)
+and [retained-authorization guidance](https://polkit.pages.freedesktop.org/polkit/polkit.8.html).
+
+Authorization has a 110-second deadline and cancellation request; GUI mutations
+have a 120-second deadline, reads four seconds. There are at most four pending
+calls per sender and 32 overall. An asyncio lock serializes controller operations;
+blocking hardware work runs off the event loop. Backend locks remain in place.
+The protocol/client cannot import the hardware through their dependency chain.
+
+## Daemon startup, lifecycle, and session behavior
+
+`predator-sensed.service` uses Type=dbus, the stable BusName, root identity,
+Restart=on-failure, and a private state directory. D-Bus activation can start it
+on demand. It claims its name before initialization so GetStatus can report
+Starting while it validates DMI and prepares EC. Unsupported/unavailable hardware
+is reported through the bus rather than causing the GUI to exit.
+
+Only daemon startup calls `ensure_ec_access()`: after exact DMI validation it
+may run the fixed `modprobe ec_sys write_support=1` command with an eight-second
+limit. It never mounts debugfs or runs shell commands from D-Bus inputs. The
+backend itself still performs no escalation or preparation.
+
+The service uses NoNewPrivileges, PrivateTmp, ProtectHome, ProtectSystem=full,
+ProtectControlGroups, RestrictSUIDSGID, LockPersonality, and AF_UNIX restriction.
+It deliberately avoids ProtectKernelTunables/ProtectKernelModules/PrivateDevices,
+which could block writable debugfs or module preparation. These settings require
+real-device validation; the service is not installed or launched by unit tests.
+
+The GUI polls read-only state every two seconds, suspends refresh while editing a
+slider or awaiting a mutation, and coalesces slider changes over 250 ms. It stays
+open on absence/startup, denied/cancelled authorization, timeout, unsupported
+hardware, and EC errors. Controls are disabled while unavailable or busy; status
+text and tooltips describe the action needed. Stale replies from reads started
+before a mutation are discarded. A timed-out request may already have applied,
+so observed state is refreshed instead of assuming a rollback.
 
 ## Authoritative G3-572 hardware map
 
@@ -106,7 +161,7 @@ The complete manual range has not been physically validated in this project.
 
 ## Backend API and safety semantics
 
-The channel-based API uses `FanChannel.CPU` / `FanChannel.GPU`:
+The daemon-internal channel-based API uses `FanChannel.CPU` / `FanChannel.GPU`:
 
 ```python
 backend = G3572EcBackend()
@@ -118,7 +173,7 @@ backend.set_fan_mode(FanChannel.GPU, FanMode.MANUAL, manual_percent=50)
 backend.set_manual_speed(FanChannel.CPU, 50)
 ```
 
-The example setters are hardware actions, not a smoke test. CPU/GPU convenience
+These setters are daemon-only hardware actions, not GUI calls or a smoke test. CPU/GPU convenience
 methods are also available for fan mode, manual speed, and RPM. CoolBoost uses
 `get_coolboost()` / `set_coolboost(enabled)`.
 
@@ -156,66 +211,57 @@ methods are also available for fan mode, manual speed, and RPM. CoolBoost uses
   availability. No hardware errors are silently converted into successful writes.
 - **Concurrency:** one process-wide RLock covers complete operations across
   backend instances; a bounded advisory flock on the EC descriptor coordinates
-  cooperating GUI/service processes. Positional unbuffered I/O avoids shared seek
+  cooperating backend processes (only the daemon owns production EC access). Positional unbuffered I/O avoids shared seek
   offsets and stale readback buffers. Locks cannot serialize firmware or unrelated
   software that ignores them. Kernel/debugfs flock behavior requires device testing.
 - **Logging:** verified changes use INFO; ordinary reads are silent and implausible
   RPM samples use DEBUG. Callers log actionable failures. Logs are not telemetry
   storage and may be under root's home for privileged launches.
 
-## Controller, state, and service
+## State migration and retired paths
 
-MainWindow accepts a backend instance and reads observed modes, manual controls,
-and CoolBoost before connecting action signals. Refresh blocks signals; unknown
-modes leave the relevant radio group unselected and unknown CoolBoost uses an
-indeterminate checkbox. Firmware and explicit Auto share the visible Auto choice.
-Manual sliders initialize from observed control values, rounded to the existing
-10-point UI steps; the tooltip retains the observed percentage.
+The daemon alone owns `/var/lib/predator-sense/state.json`, retaining the boolean
+`coolboost_enabled` schema and atomic same-directory replacement. A verified
+SetCoolBoost request persists its result. A persistence error can follow an
+applied hardware change and is reported honestly.
 
-Radio actions use `clicked`, so deselection cannot issue a second mode write.
-Global controls invoke semantic operations for each channel. Individual controls
-remain usable after a global action; the global selection reflects observed
-agreement. Failed actions display an error and refresh actual state. Only a
-verified CoolBoost write is followed by saving its preference.
+At daemon startup only a valid existing boolean preference is restored, once,
+and only after a known CoolBoost read. Missing/malformed JSON or unknown EC does
+not force off. The old 15-second loop is removed. This avoids competing writers
+but does not continually override firmware; resume/firmware resets can require
+a new explicit user request. A future resume policy needs device evidence.
 
-UI and service share `/var/lib/predator-sense/state.json` and boolean key
-`coolboost_enabled`. Saving writes and flushes a temporary file in the same
-folder, then atomically replaces the old file. Invalid/missing JSON, non-object
-JSON, or a non-boolean enabled value selects off, preserving the original missing
-state default while rejecting truthy strings. Persistence errors are reported.
-
-The service uses the same DMI guard and backend, checks observed CoolBoost, skips
-unchanged values, and refuses automatic reapplication after an unknown/failed
-read. It does not expose a generic writer or duplicate register constants.
-The preference read, EC action, and preference save are not a cross-process atomic
-unit: concurrent GUI/service intent can briefly differ until the next service
-iteration. A future daemon should own this coordination.
+The old `background_service.py`, root GUI wrapper, GUI-exec Polkit action, and
+`predator-sense.service` are removed. Upgrade hooks stop/disable that legacy unit,
+preserve saved state, then enable/start/restart `predator-sensed.service`. The
+new unit also declares a conflict with the old unit. Existing running legacy GUI
+processes should be closed during upgrade; their removed files do not terminate
+already-running processes automatically.
 
 ## Diagnostics, packaging, and unresolved audit findings
 
-Diagnostics now use the backend for mode/CoolBoost/manual/RPM reads and restrict
-`--ec-addresses` to the seven known read locations. The EC section contains decoded
-values rather than the previous raw-byte dump. System commands remain read-only.
-Explicit `acer_wmi` status, daemon status, and narrower privacy filtering from the
-Phase 0 proposal are still pending. Existing reports include cwd, UID/EUID,
-hostname via `uname -a`, and full NVIDIA output that can include process details.
-These are unnecessary for a minimal hardware report. Existing ignored reports
-are not reproduced here. The existing shell pipelines and zero-duration NVIDIA
-sampling behavior also remain audit follow-up items.
+Diagnostics request cooling data through D-Bus and restrict their location selector
+to the seven known read locations; it is no longer a raw EC reader. Temperature
+sources are read-only sysfs data. Missing NVIDIA hwmon temperatures return
+unavailable instead of executing a privileged external tool. GUI telemetry display
+is not expanded in this phase.
 
-[`PKGBUILD`](PKGBUILD) installs each Python module explicitly, including the new
-errors/state modules. Version/dependency metadata is unchanged, so `.SRCINFO`
-needs no regeneration for this module-list change. The recipe still builds from
-the local checkout with empty source/checksum lists and `url="local"`; publishing
-a reproducible source recipe is separate work. Diagnostics and license documents
-are not installed. Fonts are installed with the application and system-wide.
+Remaining diagnostics audit work includes explicit acer_wmi/service inventory
+and narrower privacy filtering. The existing report includes cwd, UID/EUID,
+hostname through uname, and NVIDIA process details. Existing shell pipelines and
+zero-duration GPU sampling behavior are unchanged.
 
-Package install/upgrade hooks enable and immediately start the root service;
-removal disables/stops it. Hook errors are suppressed. Do not install a package or
-run these hooks as a validation step. The existing polkit/launcher setup still
-runs the GUI as root. PyInstaller is undeclared and its build is untested;
-`configure.sh` remains deprecated. Frontend geometry and custom fonts are retained;
-no visual redesign was made.
+PKGBUILD explicitly includes all daemon/client modules, the unprivileged launcher,
+daemon launcher, systemd unit, D-Bus activation/routing policy, and new Polkit
+action. Dependencies include python-dbus-next, dbus, and qt6-wayland; pkgrel is 2
+and `.SRCINFO` was regenerated with makepkg. The recipe still uses local source
+and `url="local"`; publishing a reproducible source recipe is separate work.
+Fonts remain installed both with the app and system-wide. Diagnostics/license
+files are not installed, and the PyInstaller recipe remains outside CI.
+
+Installation/upgrade has persistent system and potential hardware effects. Do not
+execute hooks or install the package as a test. Package verification must use
+syntax checks or a non-installing normal-user build. `configure.sh` is deprecated.
 
 ### License and asset provenance (unresolved)
 
@@ -236,52 +282,62 @@ All ten bundled OTF name tables identify TypeType copyright (2014), designers
 Ivan Gladkikh and Olexa Volochay, and reserved rights. No embedded license text or
 URL was found, and no tracked font license document is present. Icon/screenshot
 provenance is also undocumented. This does not establish redistribution rights;
-font/asset grants and packaging of notices remain maintainer decisions. Phase 1
+font/asset grants and packaging of notices remain maintainer decisions. Phase 2
 does not change licensing declarations.
 
 ## Verification and remaining physical validation
 
-CI installs `requirements-dev.txt` on Python 3.12, runs Ruff, compiles GUI/core,
-service and diagnostics, executes unittest with `PYTHONPATH=src` and offscreen
-Qt, runs the required-file smoke check, and checks the package name. Tests do not
-need root, real EC access, or a pytest dependency.
+Local Phase 2 results: **72 tests passed on Python 3.12.14**, including four real
+Qt/dbus-next private-bus integration cases. Ruff, compilation, smoke checks,
+shell syntax, documentation links, `.SRCINFO` consistency, and diff whitespace
+checks passed. A non-installing `makepkg --nodeps -f` build succeeded in `/tmp`;
+archive inspection confirmed the new daemon/bus/Polkit assets and absence of
+legacy launchers. `--nodeps` skips host dependency checks, so it is not an installed
+runtime test. The systemd unit passed `systemd-analyze verify` against a staged
+executable path; the uninstalled `/usr/bin/predator-sensed` path cannot be checked
+as an installed command yet. A mocked offscreen window was rendered and inspected,
+including readable daemon-unavailable status within the existing geometry.
 
-Local Phase 1 verification passed on **Python 3.12.14**: all **47 unittest
-cases**, `ruff check .`, compilation of GUI/core/service/diagnostics, required-file
-smoke check, package-name sanity check, shell syntax checks, and `git diff --check`.
-The initial 45-case suite also passed on Python 3.14.7. Python/dependency runtimes
-were isolated under `/tmp`; no system packages or services were changed.
+Python 3.12 tests cover the retained backend contract, D-Bus signature/enum/range
+validation, all mutation authorization paths, caller disconnection, backend and
+persistence errors, startup status, queue bounds, concurrent operations, state
+migration, and daemon-absent GUI behavior. Private-bus integration starts an
+unprivileged dbus-daemon and fake-hardware/fake-Polkit fixture, then uses the real
+QtDBus client and dbus-next dispatcher. This verifies wire signatures, reads,
+mutations, denied authorization, and disappearance/reconnection without touching
+the system bus. CI requires dbus-daemon to avoid silently skipping that coverage.
 
-The suite exercises exact/normalized/missing/mismatched DMI, BIOS reporting,
-all fan states, unknown bytes, CoolBoost, percentage conversion and clamping,
-manual transition order, unchanged-write avoidance, RPM endianness/plausibility,
-short/malformed reads, invalid inputs and allow-lists, missing module/debugfs/EC,
-permissions and I/O errors, verification failures and partial transitions,
-thread contention, descriptor lock contention, temporary-file transport, mocked
-UI interactions, service behavior, diagnostics, and atomic saved-state handling.
+Session tests check that startup preserves Qt platform selection under simulated
+Wayland and X11 session environments, and refuses root before QApplication. They
+do not run a Plasma compositor or a real Polkit agent. The mocked offscreen window
+is checked separately for layout. Hardware fixtures redirect DMI, EC paths,
+logs, and state before operations. No live EC access, module loading, package
+installation, service changes, or system-bus control is performed for validation.
 
-Test setup redirects logger output before importing hardware modules and redirects
-DMI and EC paths. MainWindow tests inject fake backend I/O and temporary state.
-No real GUI/service, live diagnostics, module loading, EC access, package
-installation, or system-service operation is used for validation. Passing static
-checks and fake-hardware tests does not establish physical hardware correctness.
+Real G3-572 follow-up remains necessary for native Plasma Wayland/X11 windows,
+actual session Polkit dialogs and retained authorization, installed service
+activation/hardening, package upgrade from the old unit, RPM plausibility,
+immediate readback timing, descriptor locking on debugfs, and suspend/firmware
+reset behavior. Manual values beyond the supplied 50% observation and BIOS
+versions other than V1.22 remain unvalidated. The license/provenance findings
+above remain open. No commit or release is part of this work.
 
-Real G3-572 validation remains necessary for RPM plausibility/stability,
-immediate readback timing, descriptor locking on debugfs, firmware resets and
-suspend/resume, mode transitions, and CoolBoost reapplication. The manual range
-beyond the supplied 50% observation and BIOS versions other than V1.22 remain
-unvalidated. Do not restore `0x5D` decoding or add trial register writes without
-model-specific evidence. No commit, push, release, or publication is part of this
-work.
+## Phase 2 file inventory
 
-## Phase 1 changed files
-
-- Backend: `src/core/profiles.py`, `src/core/hardware.py`,
-  `src/core/env_checks.py`, new `src/core/errors.py`, new `src/core/state.py`.
-- Callers: `src/main.py`, `src/frontend.py`, `src/ui/main_window.py`,
-  `background_service.py`, `scripts/collect_diagnostics.py`.
-- Validation and packaging: new `tests/support.py`, new `tests/test_backend.py`,
-  new `tests/test_callers.py`, `.github/workflows/ci.yml`,
-  `scripts/smoke_test.py`, `PKGBUILD`.
-- Documentation: `ARCHITECTURE.md` (updates the existing uncommitted audit),
-  `AGENTS.md`, `README.md`.
+- New daemon/client: `src/daemon_main.py`, `src/service/__init__.py`,
+  `src/service/protocol.py`, `src/service/controller.py`, `src/service/daemon.py`,
+  `src/service/client.py`.
+- Updated callers/core: `src/main.py`, `src/frontend.py`, `src/ui/main_window.py`,
+  `src/core/logger.py`, `src/core/env_checks.py`, `scripts/collect_diagnostics.py`.
+- New packaging: `packaging/predator-sensed`, `packaging/predator-sensed.service`,
+  `packaging/io.github.iashutoshtiwari.PredatorSense.conf`,
+  `packaging/io.github.iashutoshtiwari.PredatorSense.service`,
+  `packaging/io.github.iashutoshtiwari.predatorsense.policy`.
+- Updated packaging/dependencies: `packaging/predator-sense`, `predator-sense.install`,
+  `PKGBUILD`, `.SRCINFO`, `requirements.txt`.
+- Removed: `background_service.py`, `packaging/predator-sense-root`,
+  `packaging/predator-sense.service`, `packaging/org.predatorsense.policy`.
+- Tests/CI: `tests/test_callers.py`, `tests/test_service.py`,
+  `tests/test_dbus_integration.py`, `tests/dbus_fixture.py`, `tests/test_packaging.py`,
+  `.github/workflows/ci.yml`, `scripts/smoke_test.py`.
+- Documentation: `README.md`, `ARCHITECTURE.md`, `AGENTS.md`.

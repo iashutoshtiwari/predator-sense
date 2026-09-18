@@ -51,10 +51,9 @@ def run_env_checks() -> bool:
 
 
 def ensure_ec_access() -> bool:
-    """Explicit privileged startup preparation, retained for the GUI and service.
+    """Explicit privileged daemon startup preparation.
 
-    Never called by G3572EcBackend. No sudo/pkexec and no EC writes. A future
-    daemon can own this preparation without changing the hardware API.
+    Never called by G3572EcBackend. No sudo/pkexec and no EC writes. Only the root daemon owns this preparation.
     """
     try:
         require_supported_identity()

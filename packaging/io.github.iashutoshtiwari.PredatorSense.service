@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=io.github.iashutoshtiwari.PredatorSense
+Exec=/usr/bin/predator-sensed
+User=root
+SystemdService=predator-sensed.service
