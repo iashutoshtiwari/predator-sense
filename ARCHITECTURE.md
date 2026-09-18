@@ -1,6 +1,6 @@
 # Predator Sense architecture and hardware contract
 
-Updated 2026-09-18 for Phase 4. The Phase 0 audit and Phase 1 backend are retained
+Updated 2026-09-18 for Phase 5. The Phase 0 audit and Phase 1 backend are retained
 as the hardware evidence and safety foundation. Phase 2 moves all production EC
 access and saved-state ownership into a root daemon. Phase 3 adds cached 1 Hz
 telemetry with isolated sensor workers and bounded history. Real-device validation is
@@ -38,8 +38,9 @@ launches require the matching system service/policies to be installed separately
 
 | Component | Responsibility |
 | --- | --- |
-| [`src/main.py`](src/main.py) | Normal-user GUI entry point, root refusal, QApplication, styling/fonts/icon, fixed 635 × 465 window. |
-| [`src/frontend.py`](src/frontend.py) | Presentation and service-status label; no hardware behavior. Its referenced `dialog.ui` remains untracked. |
+| [`src/main.py`](src/main.py) | Normal-user GUI entry point, root refusal, QApplication, system fonts, centralized theme, consistent desktop ID/SVG icon; resizable window. |
+| [`src/frontend.py`](src/frontend.py) | Hand-maintained Qt layout dashboard and segmented selectors; no hardware behavior. |
+| [`src/ui/theme.py`](src/ui/theme.py), [`src/ui/instruments.py`](src/ui/instruments.py) | Theme tokens/desktop identity, passive telemetry cards, QPainter graphs and switch. |
 | [`src/ui/main_window.py`](src/ui/main_window.py) | Client actions, debounced sliders, availability/busy/error rendering, observed state. |
 | [`src/service/client.py`](src/service/client.py) | Nonblocking QtDBus calls, timeouts, error mapping, state refresh, one pending mutation. |
 | [`src/service/protocol.py`](src/service/protocol.py) | Stable names, signatures, strict validation, generated introspection; no I/O. |
@@ -47,11 +48,11 @@ launches require the matching system service/policies to be installed separately
 | [`src/service/sensors.py`](src/service/sensors.py) | Direct coretemp sysfs discovery and lazy NVML GPU reader; daemon only. |
 | [`src/service/telemetry.py`](src/service/telemetry.py) | Three bounded workers, monotonic 1 Hz publication, 120-sample history. |
 | [`src/daemon_main.py`](src/daemon_main.py), [`src/service/daemon.py`](src/service/daemon.py) | Root-only daemon entry, system bus, sender-based Polkit checks, bounded request queue, serialized dispatch. No Qt dependency in daemon code. |
-| [`src/service/controller.py`](src/service/controller.py) | Hardware operations, saved CoolBoost restoration/persistence, serialized EC sampling. |
+| [`src/service/controller.py`](src/service/controller.py) | Hardware operations, validated cooling-state restoration/persistence, serialized EC sampling. |
 | [`src/core/hardware.py`](src/core/hardware.py) | Guarded G3572EcBackend, private EC byte/word transport, locking and verified writes. |
 | [`src/core/profiles.py`](src/core/profiles.py), [`src/core/errors.py`](src/core/errors.py) | Immutable one-machine map, enums/identity/status and structured hardware failures. |
 | [`src/core/env_checks.py`](src/core/env_checks.py) | Authoritative exact DMI gate and bounded daemon-only ec_sys preparation. |
-| [`src/core/state.py`](src/core/state.py) | Compatible atomic CoolBoost persistence, called only by daemon in production. |
+| [`src/core/state.py`](src/core/state.py) | Atomic versioned cooling-state persistence, called only by daemon in production. |
 | [`src/core/logger.py`](src/core/logger.py) | GUI user-home logs; daemon sets LOG_PATH=None and uses journal-captured streams. |
 | [`scripts/collect_diagnostics.py`](scripts/collect_diagnostics.py) | System inventory and read-only D-Bus cooling queries; never opens EC itself. |
 | [`tests/`](tests/) | Fake hardware/transport tests and real Qt/dbus-next wire tests on a private bus with fake Polkit. |
@@ -205,11 +206,11 @@ precise Qt timer; each poll requests one snapshot asynchronously. One outstandin
 read is allowed, independently of one outstanding mutation. Pending reads age the
 last sample locally; bus failures publish missing values with disconnected/error
 status. Polling automatically recovers when a daemon reappears, including a new
-epoch. `telemetry_updated(snapshot)` is the future graph/widget event. The existing
+epoch. `telemetry_updated(snapshot)` drives the dashboard cards and graphs. The existing
 `snapshot_changed` signal projects the same data onto the current fan controls.
 Both engine and client retain at most 120 snapshots in memory. The client avoids
 duplicating identical daemon sequence/epoch samples in history. There is no
-telemetry persistence, database, per-sample logging, or UI redesign.
+telemetry persistence, database, or per-sample logging. Phase 5 adds the presentation layer described below.
 
 ## Authoritative G3-572 hardware map
 
@@ -305,16 +306,49 @@ methods are also available for fan mode, manual speed, and RPM. CoolBoost uses
 
 ## State migration and retired paths
 
-The daemon alone owns `/var/lib/predator-sense/state.json`, retaining the boolean
-`coolboost_enabled` schema and atomic same-directory replacement. A verified
-SetCoolBoost request persists its result. A persistence error can follow an
-applied hardware change and is reported honestly.
+The daemon owns `/var/lib/predator-sense/state.json`: version 1 stores CPU/GPU
+requested mode, manual percent only for Manual, and the compatible boolean
+`coolboost_enabled`. Strict validation rejects incomplete/unknown fields, unknown
+modes, bool-as-percent, and out-of-range values. Legacy CoolBoost-only state
+migrates to explicit Auto for both fans. Fresh or invalid state uses explicit
+CPU/GPU Auto and CoolBoost Off: firmware retains autonomous thermal control
+without silently selecting Manual or Turbo. Invalid state is reported in status.
 
-At daemon startup only a valid existing boolean preference is restored, once,
-and only after a known CoolBoost read. Missing/malformed JSON or unknown EC does
-not force off. The old 15-second loop is removed. This avoids competing writers
-but does not continually override firmware; resume/firmware resets can require
-a new explicit user request. A future resume policy needs device evidence.
+Every successful control request saves verified desired settings with a 0600
+temporary file, file fsync, atomic same-directory replace, and directory fsync.
+systemd owns the 0700 state directory. Persistence failures report degraded
+status; an applied hardware change cannot be rolled back atomically with disk.
+Telemetry is never persisted.
+
+Startup probes the exact gated backend, reads all control registers, validates
+state, applies semantic operations with readback verification, and then becomes
+ready. Failed application attempts independent CPU/GPU Auto and CoolBoost Off
+fallback once and reports degraded status. It does not retry failed writes in
+a loop. Saved desired preferences survive fallback and intentional shutdown.
+
+`service/lifecycle.py` subscribes to authenticated logind-owner
+[PrepareForSleep signals](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html).
+Suspend blocks controls and flushes state without EC writes. Each mutation is
+already fsynced, so durability does not depend on winning the suspend notification
+race; no sleep inhibitor is held. Resume probes and rereads controls before
+restoration, revalidating DMI on every backend transaction. Missing EC retries
+health checks after 1, 2, 4, 8, 16, then 30 seconds, without repeated writes or
+per-attempt logs. EC descriptors are opened per transaction, so reacquisition
+never reuses a pre-suspend descriptor. Control and lifecycle operations share
+the daemon and backend locks. Logind owner changes also trigger recovery.
+
+During suspend/recovery cached readings are unavailable. Pre-recovery EC samples
+are withheld until a new sample arrives; normal telemetry expires after 2.5s.
+GUI initialization/reconnect only hydrates observed state with blocked signals;
+GUI close stops client polling and never changes fans or stops the daemon.
+
+SIGTERM/SIGINT stop admission, drain operations, and attempt explicit Auto on both
+fans plus CoolBoost Off, retaining desired state for restart. Cleanup is best
+effort: SIGKILL, power loss, kernel panic and failed hardware cannot guarantee it.
+The service restarts on failure after 5 seconds, limited to five starts per 300
+seconds; installation hooks enable it for multi-user boot. No second fan writer
+or GUI process is needed. Real reboot, logind suspend/resume, EC readback and
+shutdown behavior still require G3-572 V1.22 device validation.
 
 The old `background_service.py`, root GUI wrapper, GUI-exec Polkit action, and
 `predator-sense.service` are removed. Upgrade hooks stop/disable that legacy unit,
@@ -329,8 +363,7 @@ Diagnostics request cooling data through D-Bus and restrict their location selec
 to the seven known read locations; it is no longer a raw EC reader. Temperature
 queries use the coretemp/NVML cache described above. Missing GPU support returns
 unavailable without running a telemetry subprocess. The diagnostics script still
-has its separate, explicitly requested NVIDIA command sampling. GUI telemetry
-display is not expanded in this phase.
+has its separate, explicitly requested NVIDIA command sampling. Phase 5 now displays the shared telemetry snapshot and history.
 
 Remaining diagnostics audit work includes explicit acer_wmi/service inventory
 and narrower privacy filtering. The existing report includes cwd, UID/EUID,
@@ -343,7 +376,7 @@ action. Dependencies include python-dbus-next, dbus, and qt6-wayland; the NVML
 binding is optional. Phase 3 adds all three telemetry modules, bumps pkgrel to 3,
 and regenerates `.SRCINFO` with makepkg. The recipe still uses local source
 and `url="local"`; publishing a reproducible source recipe is separate work.
-Fonts remain installed both with the app and system-wide. Diagnostics/license
+Phase 5 stops installing unconfirmed font assets; system fonts are used. Diagnostics/license
 files are not installed, and the PyInstaller recipe remains outside CI.
 
 Installation/upgrade has persistent system and potential hardware effects. Do not
@@ -486,8 +519,8 @@ The shared hardware maximum also validates the telemetry wire model.
 Production integration uses the existing 1 Hz daemon EC worker and immutable
 snapshot. EC operations remain serialized with controls. Raw accepted words pass
 through unchanged: no conversion, rolling average, or smoothing. Failed or stale
-fields are unavailable, while valid zero stays zero. The current GUI has no RPM
-panel; the backend/client event and validation utility expose these readings.
+fields are unavailable, while valid zero stays zero. Phase 5 now shows candidate RPM in both telemetry cards and graphs, preserving
+the source warning; the validation utility also exposes the same readings.
 
 [`scripts/validate_fan_telemetry.py`](scripts/validate_fan_telemetry.py) reads cached
 snapshots from an already-running service at 1 Hz by default (configurable 1–60
@@ -523,3 +556,90 @@ daemon test verifies it exits instead of activating a service. Ruff, compilation
 smoke, CLI help, and diff-whitespace checks passed. Existing Phase 3 changes were
 preserved. No live EC/NVML access, service changes, package installation, or commit
 was performed for this phase.
+
+
+## Phase 5: native thermal dashboard
+
+The daemon, service client, wire protocol, and hardware code are unchanged in this
+phase. `MainWindow` consumes `telemetry_updated` for instruments/history and
+`snapshot_changed` for controls. It makes one asynchronous hardware-identity read
+per daemon epoch after initialization, not one per tick; Retry can refresh identity after an error.
+No widget reads hardware, spawns commands, or owns a telemetry polling timer.
+
+`frontend.py` is a hand-maintained layout rather than generated absolute geometry.
+The preferred 1020 × 800 window is resizable with a 760 × 480 minimum; startup
+fits it to the available screen in logical coordinates, including 200% scaling. CPU/GPU panels
+sit side by side when space permits, stack when font/layout minimums require it,
+and remain reachable through a scroll area. Each card presents temperature first,
+then candidate RPM, then mode, with separate temperature and RPM histories for the
+last 60 seconds. Fixed graph scales (0–125 °C and 0–6122 candidate RPM) prevent
+misleading auto-scaling. Graphs preserve missing samples and time gaps, and apply
+no smoothing. Empty charts say Awaiting readings; missing numbers show a dash.
+Historical values remain historical, never substituted for a current missing value.
+
+The cooling panel contains global Auto/Turbo, per-fan Auto/Manual/Turbo segments,
+horizontal sliders with percentages, and a CoolBoost switch. Manual values retain
+the existing 0–10 to 0–100 mapping. Mouse dragging commits once on release; keyboard
+changes debounce for 250 ms. Programmatic rendering blocks signals. Manual sliders
+require a known Manual state, and CoolBoost edits require known state plus at least
+one Auto fan. Its observed ON/OFF state stays visible when edits are unavailable;
+no new hardware semantics or firmware mode writes are introduced.
+
+The header has connection status; the footer reports daemon, detected model, EC,
+and BIOS. Missing GPU/RPM readings have local explanations/tooltips. Daemon, EC,
+unsupported-hardware, and authorization failures use a compact actionable banner.
+A retry button refreshes read-only state. Controls keep native Qt radio/checkbox/
+slider semantics, accessible names, focus indication, and a logical keyboard order.
+No transitions, timer animations, widget-tree rebuilds, plotting frameworks,
+webviews, QML, or unrelated features are introduced.
+
+Colors, stylesheet, spacing, and desktop ID are centralized in `ui/theme.py`.
+`font_config.py` uses Qt system UI/monospace fonts. The old Squares assets and old
+icon remain in the repository as audit material, but are no longer loaded or
+packaged. Their historical provenance and the repository's GPL/MIT mismatch remain
+unresolved; this change does not claim or assign their licences. The new SVG is
+an original geometric thermal-control mark, not a copied Acer logo.
+
+Qt application name/desktopFileName, installed desktop filename, StartupWMClass,
+and hicolor SVG name use `io.github.iashutoshtiwari.PredatorSense`; visible title is
+Predator Sense. Source/installed/PyInstaller asset resolution is retained. `qt6-svg`
+is an explicit Arch runtime dependency for the icon (it is optional in Arch's
+[python-pyqt6 package](https://archlinux.org/packages/extra/x86_64/python-pyqt6/)).
+PKGBUILD installs both UI modules and SVG, removes the old font/ICO installation,
+and uses pkgrel 4 with regenerated `.SRCINFO`. The PyInstaller asset list is
+updated, but that build path remains outside CI.
+
+Qt retains session platform selection and native scaling. The desktop identifier
+follows [Qt's desktopFileName contract](https://doc.qt.io/qt-6/qguiapplication.html#desktopFileName-prop),
+and drawing uses logical coordinates with DPI-aware Qt rasterization as described
+in [Qt high-DPI support](https://doc.qt.io/qt-6/highdpi.html). No XCB/Wayland override
+or privileged GUI launch is introduced.
+
+`tests/dashboard_fixture.py` contains explicit simulated data; production never
+imports it. `tests/render_dashboard.py` exports live-looking, offline, missing-GPU,
+authentication, and compact states marked SIMULATED TEST DATA. Representative
+screenshots are in `docs/screenshots/`. These are offscreen renders, not evidence
+of a live G3-572 or a Plasma compositor session. Native Wayland/X11 integration,
+fractional scaling across physical monitors, actual Polkit-agent dialogs, and
+physical telemetry validation still require testing on the target device.
+
+Phase 5 validation: **119 tests passed on Python 3.12.14**. New cases cover live
+values/graphs, legitimate zero versus missing values, gaps and history bounds,
+mouse release/keyboard debouncing, keyboard modes, CoolBoost availability,
+connection/authentication banners, identity refresh across epochs and startup,
+widget-tree stability, larger fonts, compact layout, and offscreen rendering at
+125% and 200%. Additional screenshots were inspected at 100%, 125%, 150%, and 200%.
+
+A three-minute Qt/private-bus soak with the production theme and simulated GPU
+stalls/failures delivered **181 updates**, averaging **0.999 seconds**, with a
+**22 ms maximum Qt heartbeat gap**. History stayed capped at 120. The fixture
+remained bounded at five daemon threads: main, three sensor workers, and one
+reusable executor worker for the dashboard's identity request. Its RSS rose from
+25,316 to 26,860 KiB while filling history. These measurements use simulated
+hardware, not the physical laptop or a compositor performance benchmark.
+
+Ruff, compilation, smoke checks, desktop-file validation, shell syntax, `.SRCINFO`
+consistency, and diff-whitespace checks passed. A non-installing `makepkg --nodeps
+-f` build succeeded; the archive contains all modules, matching desktop/SVG assets,
+and qt6-svg dependency, with no bundled fonts or ICO. No installed services,
+package lifecycle hooks, kernel modules, live hardware, or commits were touched.

@@ -5,7 +5,9 @@ your normal desktop user; the `predator-sensed` system daemon owns hardware acce
 
 ## Screenshot
 
-![Predator Sense](demo.png)
+![Predator Sense dashboard with simulated test data](docs/screenshots/dashboard.png)
+
+Offscreen preview with **simulated test data**; live values come only from the daemon.
 
 ## Support
 
@@ -30,7 +32,7 @@ Wayland on a Wayland session and X11 on an X11 session. The package includes
 `qt6-wayland`; no platform override is applied.
 
 Runtime packages: `python`, `python-pyqt6`, `python-dbus-next`, `polkit`, `dbus`,
-and `qt6-wayland`. Optional `python-nvidia-ml-py` supplies NVIDIA GPU temperatures
+`qt6-wayland`, and `qt6-svg`. Optional `python-nvidia-ml-py` supplies NVIDIA GPU temperatures
 using the installed NVIDIA driver. An active desktop Polkit authentication agent is required for
 control actions (normally supplied by Plasma). Reads do not prompt. Mutations
 require administrator authentication, retained temporarily by Polkit; slider
@@ -38,9 +40,9 @@ changes are debounced and only one control request is outstanding at a time.
 
 Upgrading disables/stops the legacy `predator-sense.service`. Its existing
 `/var/lib/predator-sense/state.json` is preserved. The new daemon restores a valid
-saved CoolBoost preference once at startup, then applies changes on request.
-There is no 15-second enforcement loop. Firmware resets after suspend may require
-reapplying CoolBoost; continuous enforcement is deliberately absent.
+cooling configuration at startup and after logind resume. Legacy CoolBoost-only
+preferences migrate to explicit Auto fan modes. There is no continuous register
+enforcement loop. See the lifecycle policy below.
 
 ## Run the GUI from source
 
@@ -72,8 +74,16 @@ separate bounded workers, so a slow GPU cannot freeze the window. There are no
 per-second subprocesses or telemetry disk writes.
 
 `ServiceClient.telemetry_updated(snapshot)` and its bounded `history` (120 samples)
-are available for future graph widgets. The existing fan-control UI uses this same
-snapshot; temperature graphs and a visual redesign are outside this phase.
+drive the native dashboard: CPU/GPU temperature and candidate RPM cards, four
+60-second QPainter graphs, per-fan Auto/Manual/Turbo selectors, global Auto/Turbo,
+and CoolBoost. Missing values show a dash and an explanation; missing graph samples
+remain gaps. Sliders show percentages, commit mouse drags on release, and debounce
+keyboard changes for 250 ms. CoolBoost is editable when at least one fan is in Auto.
+
+The window resizes, adapts its card layout, and scrolls when larger fonts or smaller
+screens need more space. It uses system fonts, a centralized dark/red theme, and
+an SVG icon; the bundled Squares fonts are neither loaded nor installed because
+their licence remains unconfirmed. No Qt platform override or root GUI is used.
 
 ## Troubleshooting
 
@@ -122,7 +132,7 @@ recording. Capture BIOS V1.22, workload, temperatures, and independent reference
 readings when comparing. Do not run another EC control tool concurrently.
 
 The tool pins an existing daemon owner and refuses auto-activation, avoiding a
-startup-triggered CoolBoost restore. It stops if that owner disappears. It neither
+startup-triggered cooling-state restore. It stops if that owner disappears. It neither
 opens EC directly nor sends control requests. Unknown/stale values print
 `Unavailable`; an actual zero prints `0`. Repeated sequence numbers mean the same
 cached sample. No smoothing or scaling is applied. NBFC confirms the read map and
@@ -145,6 +155,13 @@ Polkit authority; it never contacts the system bus. No root or hardware access i
 required. The offscreen platform override is test-only. Private-bus tests are
 skipped when `dbus-daemon` is unavailable; CI checks for it explicitly.
 
+Render the dashboard with simulated data (no hardware or system bus):
+
+```bash
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen python tests/render_dashboard.py /tmp/predator-ui
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=1.25 python tests/render_dashboard.py /tmp/predator-ui-125
+```
+
 An optional three-minute offscreen Qt soak introduces fake GPU stalls/failures:
 
 ```bash
@@ -164,3 +181,20 @@ range and candidate RPM telemetry still require real-device validation.
 
 This project is based on https://github.com/mohsunb/PredatorSense.
 The unresolved license and asset provenance findings are recorded in ARCHITECTURE.md.
+
+
+### Cooling state and service lifecycle
+
+The system daemon runs independently of the GUI and is enabled at boot by the
+Arch package hooks. Verified CPU/GPU modes, applicable manual percentages and
+CoolBoost are saved atomically under `/var/lib/predator-sense/`.
+Fresh or invalid settings select explicit Auto for both fans and CoolBoost Off.
+Legacy CoolBoost-only files migrate to Auto with the saved CoolBoost preference.
+
+Logind suspend/resume notifications pause controls and trigger guarded recovery.
+Missing EC access retries with backoff; failed setting writes report degraded
+status and attempt Auto once. Closing/reopening the GUI never changes fan state.
+An intentional service stop attempts Auto/Auto/Off while preserving preferences
+for restart. This cleanup cannot be guaranteed after SIGKILL, power loss, kernel
+panic or hardware failure. Reboot and suspend behavior still need physical
+G3-572 validation; see [ARCHITECTURE.md](ARCHITECTURE.md).

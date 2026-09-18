@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 from dbus_next import Message, MessageType, Variant
 
 from support import BackendCase
-from core.profiles import COOLBOOST_REGISTER, FanMode
+from core.profiles import FanMode
 from service.controller import Controller
 from service.daemon import ControlService, PolkitAuthorizer
 from service.telemetry_model import TelemetrySnapshot
@@ -51,7 +51,7 @@ class ServiceTests(BackendCase, unittest.IsolatedAsyncioTestCase):
             await self.call(name, signature, args)
         self.assertEqual(self.auth.authorize.await_count, len(CONTROL_METHODS))
         self.auth.authorize.assert_awaited_with(":1.42")
-        self.assertEqual(json.loads((self.root / "state.json").read_text()), {"coolboost_enabled": True})
+        self.assertTrue(json.loads((self.root / "state.json").read_text())["coolboost_enabled"])
 
     async def test_all_unauthorized_mutations_have_zero_effects(self):
         self.auth.authorize.side_effect = ServiceError("NotAuthorized", "denied")
@@ -123,21 +123,7 @@ class ServiceTests(BackendCase, unittest.IsolatedAsyncioTestCase):
         self.ec.read_override[0x21] = b"\x00"
         with self.assertRaises(ServiceError):
             await self.call("SetGlobalTurbo")
-        self.assertEqual(self.backend.get_cpu_fan_mode(), FanMode.TURBO)
-
-    async def test_restore_existing_preference_once_and_skip_unknown(self):
-        state = self.root / "state.json"
-        state.write_text('{"coolboost_enabled": true}')
-        self.controller.restore_coolboost()
-        self.controller.restore_coolboost()
-        self.assertEqual(self.ec.writes, [(COOLBOOST_REGISTER, 1)])
-        self.ec.data[COOLBOOST_REGISTER] = 2
-        self.controller.restore_coolboost()
-        self.assertEqual(len(self.ec.writes), 1)
-        for data in ("[]", "{", '{"coolboost_enabled": "false"}'):
-            state.write_text(data)
-            self.controller.restore_coolboost()
-        self.assertEqual(len(self.ec.writes), 1)
+        self.assertEqual(self.backend.get_cpu_fan_mode(), FanMode.AUTO)
 
     async def test_wire_errors_and_backpressure(self):
         message = Message(

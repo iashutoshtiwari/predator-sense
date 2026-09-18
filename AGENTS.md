@@ -6,32 +6,35 @@ Predator Sense is a Python/PyQt6 desktop fan-control app for the Acer Predator
 Helios 300 (2017), model G3-572-55UB. Arch Linux, CachyOS, and compatible Arch-derived distributions are supported;
 CI runs static and hardware-free behavioral checks on Ubuntu with Python 3.12. This is a source-based desktop
 app, not a web app or an installable Python package. Runtime dependencies include
-PyQt6, Python, dbus-next, D-Bus, polkit, and Qt Wayland; see `requirements.txt` and `PKGBUILD`.
+PyQt6, Python, dbus-next, D-Bus, polkit, Qt Wayland, and Qt SVG; see `requirements.txt` and `PKGBUILD`.
 
 Features currently implemented: CPU/GPU Auto, Manual, and Turbo fan modes,
 global Auto/Turbo controls, persistent CoolBoost, and daemon-side 1 Hz telemetry. Diagnostics can inspect
-NVIDIA tools; the backend exposes candidate fan RPM reads, but there is no live
-telemetry display or GPU overclocking feature.
+NVIDIA tools. The native dashboard shows CPU/GPU temperatures, candidate RPM,
+four 60-second graphs, modes, CoolBoost, and compact hardware status. GPU
+overclocking is not implemented.
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) for the audited runtime and packaging,
-G3-572 hardware evidence, Phase 2 daemon/client contract, Phase 3 telemetry, and remaining audit risks.
+G3-572 hardware evidence, Phase 2 daemon/client contract, Phase 3 telemetry, Phase 4 RPM validation, Phase 5 UI, and remaining audit risks.
 It distinguishes implemented safeguards from outstanding physical validation. Keep it current when changing the architecture or hardware contract.
 
 ## Where to work
 
 | File | Responsibility |
 | --- | --- |
-| `src/main.py` | Unprivileged GUI entry point, root refusal, QApplication, palette/styles/icon, fixed window. |
-| `src/frontend.py` | Widget construction, labels, and geometry (`Ui_PredatorSense`). |
+| `src/main.py` | Unprivileged GUI entry point, root refusal, QApplication, desktop identity, theme/icon, resizable window. |
+| `src/frontend.py` | Layout-managed dashboard construction and labels (`Ui_PredatorSense`). |
 | `src/ui/main_window.py` | `MainWindow`, asynchronous client actions, service status, and observed-state rendering. |
 | `src/core/profiles.py` | Single G3-572 constant map, `FanChannel`, `FanMode`, identity/status types. |
 | `src/core/hardware.py` | `G3572EcBackend`, private EC transport, locking, verified semantic operations. |
 | `src/core/env_checks.py` | Exact normalized DMI identity gate and daemon-only bounded startup EC preparation. |
-| `src/core/errors.py`, `src/core/state.py` | Structured hardware failures and shared atomic CoolBoost persistence. |
+| `src/core/errors.py`, `src/core/state.py` | Structured hardware failures and atomic cooling-state persistence. |
 | `src/core/logger.py` | Console logging and rotating file logs. |
-| `src/font_config.py`, `fonts/` | Bundled Squares font registration and QFont helpers. |
+| `src/font_config.py` | System UI and numeric font helpers; no bundled font registration. |
+| `src/ui/theme.py`, `src/ui/instruments.py` | Central theme/desktop identity, passive telemetry cards, QPainter graphs and CoolBoost switch. |
 | `src/daemon_main.py`, `src/service/daemon.py` | Root entry point, system bus ownership, Polkit checks, serialized requests. |
-| `src/service/controller.py` | Daemon operations, one-time saved CoolBoost restore, serialized EC sampling. |
+| `src/service/lifecycle.py` | Trusted logind sleep signals, serialized recovery and bounded health retry rate. |
+| `src/service/controller.py` | Daemon operations, validated cooling-state restore, serialized EC sampling. |
 | `src/service/protocol.py`, `src/service/client.py` | Stable wire contract and asynchronous unprivileged Qt client. |
 | `src/service/telemetry_model.py` | Immutable snapshots, per-sensor status/freshness, versioned JSON wire schema. |
 | `src/service/sensors.py`, `src/service/telemetry.py` | Daemon-only coretemp/NVML sources, isolated bounded workers, monotonic 1 Hz sampling. |
@@ -82,15 +85,19 @@ unrelated local work.
   five-second failure retry; no per-second `sensors` or `nvidia-smi` subprocess.
   Tests inject NVML and sysfs sources; never initialize real NVML for validation.
 - Only the daemon writes `/var/lib/predator-sense/state.json`, preserving the
-  `coolboost_enabled` boolean key. It restores valid existing state once at startup;
-  missing/malformed state and unknown EC state do not trigger restoration. The old
-  15-second CoolBoost service and root GUI wrapper are removed.
+  `coolboost_enabled` boolean key in the versioned cooling-state schema. Restore
+  validated modes/manual percentages/CoolBoost after a healthy probe at startup
+  and logind resume. Missing/invalid state selects explicit Auto/Auto/Off.
+  Stop fallback must not overwrite desired preferences. Recovery health checks
+  back off to 30 seconds; failed writes get one best-effort Auto fallback.
+  See ARCHITECTURE.md for durability, suspend and cleanup limitations.
 - Every D-Bus mutation must check Polkit against the bus-provided unique sender.
   Never accept a caller-supplied identity, arbitrary address, command, or path.
   Reads are unauthenticated; method routing is explicitly allow-listed in bus
   policy. Keep the protocol, introspection, policy, and packaging consistent.
 - Leave Qt platform selection to the user's session. Do not force xcb/Wayland or
-  launch the GUI as root. Debounce sliders and retain asynchronous client behavior.
+  launch the GUI as root. Mouse slider drags commit on release; keyboard changes
+  debounce for 250 ms. Preserve signal blocking during observed-state updates.
 - Importing modules that initialize a logger creates log directories/files under
   `Path.home() / ".local/state/predator-sense/app.log"`. Privileged launches may
   use journal-only logging via `LOG_PATH = None`. In isolated tests, configure the logger's
@@ -148,15 +155,17 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
 - Keep widget presentation in `frontend.py`, controller behavior in
   `ui/main_window.py`, EC access in `core/hardware.py`, and model values in
   `core/profiles.py`.
-- `frontend.py` has a generated-file warning, but its referenced `dialog.ui` is
-  not tracked. Edit the checked-in Python carefully; do not assume it can be
-  regenerated or overwrite its custom font helpers and signal wiring.
+- `frontend.py` is now hand-maintained and uses Qt layouts. Keep it presentation-only;
+  graphs/cards consume snapshots/history, never poll or import hardware.
+- Use `ui/theme.py` for colors and desktop identity. UI fonts come from the system;
+  the old bundled Squares files remain unlicensed audit material and are not used
+  or installed. Do not reactivate them without a confirmed grant.
 - Radio-button `toggled` fires on both selection and deselection. The controller
   uses `clicked` for hardware actions and blocks signals while refreshing observed
   state. Preserve zero-write startup and test global/individual transitions.
 - Use `font_config` helpers for new widgets. Preserve asset lookup for source,
-  installed, and PyInstaller layouts. Check geometry against the fixed window
-  size when changing UI layout.
+  installed, and PyInstaller layouts. Check compact layouts, large fonts, and
+  100–200% scaling. `tests/render_dashboard.py` renders explicitly simulated data.
 - Keep subprocess calls bounded, handle missing commands, and use argument lists
   in hardware code. Diagnostics should remain read-only with respect to hardware
   and system configuration.
@@ -165,7 +174,8 @@ sensors, including stalled/failing GPU reads; it never uses the production bus.
 
 - `PKGBUILD` explicitly installs each Python module under
   `/usr/share/predator-sense`; adding or moving modules requires updating that
-  list. Fonts are installed both with the app and under `/usr/share/fonts/TTSquares`.
+  list. Install the original SVG under app assets and hicolor/scalable/apps; keep
+  the desktop filename/icon and Qt desktopFileName aligned with `APP_ID`.
 - The desktop launcher executes Python as the normal user. `predator-sensed.service`
   runs the root daemon as Type=dbus. Polkit gates control methods, not GUI launch.
   D-Bus service, object, interface, and action names live in `service/protocol.py`.

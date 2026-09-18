@@ -22,6 +22,7 @@ class FakeTransport:
         self.calls = []
         self.error = None
         self.responses = {
+            "GetHardwareIdentity": ["Predator G3-572", "V1.22", True, True],
             "GetStatus": [True, "", ""],
             "GetFanState": ["firmware_auto", "auto", 50, 50],
             "GetCoolBoost": [0],
@@ -72,7 +73,7 @@ class ClientWindowTests(BackendCase):
     def test_read_only_startup_and_client_api(self):
         window = self.window()
         self.assertTrue(window.cpu_auto.isChecked())
-        self.assertEqual(self.transport.calls, [("GetTelemetrySnapshot", [])])
+        self.assertEqual(self.transport.calls, [("GetTelemetrySnapshot", []), ("GetHardwareIdentity", [])])
         for function, args, method in (
             (self.client.set_cpu_mode, ["turbo"], "SetCpuFanMode"),
             (self.client.set_gpu_mode, ["auto"], "SetGpuFanMode"),

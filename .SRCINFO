@@ -1,7 +1,7 @@
 pkgbase = predator-sense
 	pkgdesc = Predator Sense fan control app for Helios 300 G3-572-55UB
 	pkgver = 0.2.0
-	pkgrel = 3
+	pkgrel = 5
 	url = local
 	install = predator-sense.install
 	arch = x86_64
@@ -12,6 +12,7 @@ pkgbase = predator-sense
 	depends = polkit
 	depends = dbus
 	depends = qt6-wayland
+	depends = qt6-svg
 	optdepends = evtest: monitor keyboard events while troubleshooting
 	optdepends = python-nvidia-ml-py: NVIDIA GPU temperature via NVML
 

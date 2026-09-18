@@ -5,6 +5,9 @@ import pathlib
 def main():
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     required = [
+        repo_root / "src" / "ui" / "theme.py",
+        repo_root / "src" / "ui" / "instruments.py",
+        repo_root / "assets" / "predator-sense.svg",
         repo_root / "scripts" / "validate_fan_telemetry.py",
         repo_root / "src" / "main.py",
         repo_root / "src" / "daemon_main.py",

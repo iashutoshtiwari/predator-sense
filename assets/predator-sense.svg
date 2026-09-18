@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Predator Sense thermal control</title>
+  <!-- Original geometric thermal-control mark, created for this application. -->
+  <path fill="#11151A" d="M24 4h80l20 20v80l-20 20H24L4 104V24z"/>
+  <path fill="none" stroke="#ED334B" stroke-width="5" d="M25 10h78l15 15v78l-15 15H25l-15-15V25z"/>
+  <g fill="#ED334B">
+    <path d="M61 24h30L72 54H57z"/>
+    <path d="M104 61v30L74 72V57z"/>
+    <path d="M67 104H37l19-30h15z"/>
+    <path d="M24 67V37l30 19v15z"/>
+  </g>
+  <path fill="#E8EBEF" d="m64 53 11 11-11 11-11-11z"/>
+</svg>

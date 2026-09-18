@@ -1,9 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Predator Sense™
+Name=Predator Sense
 Comment=Fan control for Predator Helios 300 G3-572
 Exec=/usr/bin/predator-sense
-Icon=/usr/share/predator-sense/app_icon.ico
+Icon=io.github.iashutoshtiwari.PredatorSense
+StartupWMClass=io.github.iashutoshtiwari.PredatorSense
 Terminal=false
-Categories=System;Settings;
+Categories=System;
 StartupNotify=true

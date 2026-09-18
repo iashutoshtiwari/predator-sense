@@ -159,6 +159,7 @@ async def run_daemon():
     from core.env_checks import ensure_ec_access, run_env_checks
     from core.hardware import G3572EcBackend
     from service.controller import Controller
+    from service.lifecycle import SleepMonitor
     from service.sensors import CoretempSensor, NvmlSensor
     from service.telemetry import TelemetryEngine
 
@@ -176,12 +177,18 @@ async def run_daemon():
             try:
                 valid = await asyncio.to_thread(run_env_checks)
                 if valid and await asyncio.to_thread(ensure_ec_access):
-                    await asyncio.to_thread(controller.restore_coolboost)
+                    await asyncio.to_thread(controller.recover, startup=True)
+                else:
+                    controller.degraded = "Hardware identity or EC preparation failed."
             except Exception as exc:
-                logger.exception("Initial CoolBoost restoration failed")
-                controller.startup_warning = f"Saved CoolBoost could not be restored: {exc}"
+                logger.exception("Initial cooling restoration failed")
+                controller.degraded = f"Saved cooling settings could not be restored: {exc}"
             finally:
                 controller.starting = False
+
+    monitor = SleepMonitor(bus, service)
+    await monitor.start()
+    recovery = asyncio.create_task(monitor.run())
 
     controller.telemetry = TelemetryEngine(CoretempSensor(), NvmlSensor(), controller.sample_ec)
     sampling = asyncio.create_task(controller.telemetry.run())
@@ -191,8 +198,10 @@ async def run_daemon():
         asyncio.get_running_loop().add_signal_handler(sig, stop.set)
     disconnected = asyncio.create_task(bus.wait_for_disconnect())
     stopping = asyncio.create_task(stop.wait())
-    await asyncio.wait((disconnected, stopping, sampling), return_when=asyncio.FIRST_COMPLETED)
+    await asyncio.wait((disconnected, stopping, sampling, recovery), return_when=asyncio.FIRST_COMPLETED)
     stopping.cancel()
+    controller.lifecycle = "Stopping"
+    monitor.close()
     bus.remove_message_handler(service.handle_message)
     sampling_failed = sampling.done() and not sampling.cancelled()
     sampling.cancel()
@@ -201,6 +210,12 @@ async def run_daemon():
     for task in list(service.tasks):
         task.cancel()
     await asyncio.gather(*service.tasks, return_exceptions=True)
+    recovery.cancel()
+    await asyncio.gather(recovery, return_exceptions=True)
+    # The controller lock also drains any already-running to_thread operation.
+    fallback_error = await asyncio.to_thread(controller.shutdown)
+    if fallback_error:
+        logger.error("Best-effort stop fallback incomplete: %s", fallback_error)
     bus.disconnect()
     await disconnected
     if not stop.is_set():

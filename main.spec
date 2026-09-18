@@ -8,7 +8,7 @@ a = Analysis(
     ['src/main.py'],
     pathex=['src'],
     binaries=[],
-    datas=[('app_icon.ico', '.'), ('fonts', 'fonts')],
+    datas=[('assets/predator-sense.svg', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

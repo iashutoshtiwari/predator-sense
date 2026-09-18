@@ -1,7 +1,10 @@
 [Unit]
 Description=Predator Sense G3-572 hardware service
-After=dbus.service
+After=dbus.service systemd-logind.service
 Requires=dbus.service
+Wants=systemd-logind.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
 Conflicts=predator-sense.service
 
 [Service]
@@ -10,7 +13,7 @@ BusName=io.github.iashutoshtiwari.PredatorSense
 ExecStart=/usr/bin/predator-sensed
 User=root
 Restart=on-failure
-RestartSec=3
+RestartSec=5
 TimeoutStopSec=15
 StateDirectory=predator-sense
 StateDirectoryMode=0700

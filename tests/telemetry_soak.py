@@ -12,11 +12,13 @@ from PyQt6 import QtCore
 
 from test_dbus_integration import PrivateBusTests
 from ui.main_window import MainWindow
+from ui.theme import apply_theme
 
 
 def main():
     case = PrivateBusTests()
     case.setUpClass()
+    apply_theme(case.app)
     case.setUp()
     window = None
     try:
@@ -49,7 +51,8 @@ def main():
         assert 0.98 <= sum(intervals) / len(intervals) <= 1.02
         assert max(gaps) < 0.25, max(gaps)
         assert max(history_sizes) == 120
-        assert max(workers) <= 4, max(workers)
+        # Main + three sensor lanes + one executor thread for the identity read.
+        assert max(workers) <= 5, max(workers)
         assert states["stale"] > 0 and states["sensor_failed"] > 0
         print(json.dumps({
             "updates": len(updates), "mean_interval_seconds": sum(intervals) / len(intervals),

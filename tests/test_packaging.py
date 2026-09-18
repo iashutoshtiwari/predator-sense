@@ -67,11 +67,12 @@ class PackagingTests(unittest.TestCase):
                 with (
                     patch.object(main.os, "geteuid", return_value=1000),
                     patch.object(main.QtWidgets, "QApplication") as app,
-                    patch.object(main, "register_bundled_fonts", return_value=""),
+                    patch.object(main, "apply_theme"),
                     patch.object(main, "ServiceClient"),
                     patch.object(main, "MainWindow"),
                 ):
                     app.return_value.exec.return_value = 0
+                    app.return_value.primaryScreen.return_value = None
                     self.assertEqual(main.main(), 0)
                 self.assertEqual(os.environ.get("QT_QPA_PLATFORM"), original)
 
